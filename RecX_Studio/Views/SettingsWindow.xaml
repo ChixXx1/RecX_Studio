@@ -1,0 +1,359 @@
+<Window x:Class="RecX_Studio.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Настройки записи" 
+        Height="600" 
+        Width="500"
+        MinHeight="550"
+        MinWidth="450"
+        WindowStartupLocation="CenterOwner"
+        Background="#252526"
+        Foreground="White"
+        ResizeMode="CanResize"
+        WindowStyle="SingleBorderWindow">
+    
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Margin" Value="0,5"/>
+        </Style>
+        
+        <!-- Стиль для ComboBox -->
+        <Style x:Key="ModernComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Background" Value="#000000"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3E3E3E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="#007ACC"/>
+                </Trigger>
+                <Trigger Property="IsFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="#007ACC"/>
+                </Trigger>
+                <Trigger Property="IsDropDownOpen" Value="True">
+                    <Setter Property="Background" Value="#1E1E1E"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#2D2D30"/>
+                    <Setter Property="Foreground" Value="#666666"/>
+                    <Setter Property="BorderBrush" Value="#444444"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Стиль для выпадающего списка ComboBox -->
+        <Style x:Key="ModernComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#000000"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#2A2A2A"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#007ACC"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+
+        <!-- Стиль для TextBox -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3E3E3E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="#007ACC"/>
+                </Trigger>
+                <Trigger Property="IsFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="#007ACC"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <!-- Стили для кнопок -->
+        <Style x:Key="SettingsButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#3C3C3C"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#666666"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="12,4"/>
+            <Setter Property="Margin" Value="5,0"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#2D2D30"/>
+                    <Setter Property="Foreground" Value="#666666"/>
+                    <Setter Property="BorderBrush" Value="#444444"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#4C4C4C"/>
+                    <Setter Property="BorderBrush" Value="#007ACC"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#007ACC"/>
+                    <Setter Property="BorderBrush" Value="#007ACC"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="BrowseButtonStyle" TargetType="Button" BasedOn="{StaticResource SettingsButtonStyle}">
+            <Setter Property="Width" Value="80"/>
+        </Style>
+
+        <Style x:Key="DialogButtonStyle" TargetType="Button" BasedOn="{StaticResource SettingsButtonStyle}">
+            <Setter Property="Width" Value="90"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <!-- Стиль для GroupBox -->
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="BorderBrush" Value="#444444"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="Margin" Value="0,0,0,15"/>
+        </Style>
+
+        <!-- Стиль для заголовка GroupBox -->
+        <Style TargetType="Border" x:Key="GroupBoxHeaderStyle">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="CornerRadius" Value="3"/>
+        </Style>
+    </Window.Resources>
+    
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Основное содержимое настроек -->
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="0,0,5,0">
+            <StackPanel Orientation="Vertical">
+                
+                <!-- Настройки пути записи -->
+                <GroupBox Header="Путь записи">
+                    <StackPanel Orientation="Vertical" Margin="5">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <TextBox Grid.Column="0" 
+                                   Text="{Binding Settings.RecordingPath}"
+                                   Margin="0,0,8,0"
+                                   ToolTip="Путь для сохранения записей"/>
+                            
+                            <Button Grid.Column="1" 
+                                  Content="Обзор..."
+                                  Style="{StaticResource BrowseButtonStyle}"
+                                  Command="{Binding BrowsePathCommand}"/>
+                        </Grid>
+                        
+                        <CheckBox Content="Всегда спрашивать путь перед записью" 
+                                IsChecked="{Binding Settings.AskForPathEachTime}"
+                                Margin="0,12,0,0"/>
+                        
+                        <TextBlock Text="{Binding Settings.RecordingPath, StringFormat='Текущий путь: {0}'}" 
+                                 Margin="0,8,0,0"
+                                 FontStyle="Italic"
+                                 TextWrapping="Wrap"
+                                 Foreground="#AAAAAA"
+                                 FontSize="11"/>
+                    </StackPanel>
+                </GroupBox>
+                
+                <!-- Настройки качества -->
+                <GroupBox Header="Качество записи">
+                    <StackPanel Orientation="Vertical" Margin="5">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- FPS -->
+                            <!-- <Grid Grid.Row="0" Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <TextBlock Grid.Column="0" 
+                                         Text="Частота кадров:" 
+                                         VerticalAlignment="Center" 
+                                         Margin="0,0,12,0"
+                                         FontWeight="SemiBold"/>
+                                
+                                <ComboBox Grid.Column="1"
+                                        ItemsSource="{Binding AvailableFps}"
+                                        SelectedItem="{Binding Settings.Fps}"
+                                        Style="{StaticResource ModernComboBoxStyle}"
+                                        ItemContainerStyle="{StaticResource ModernComboBoxItemStyle}"
+                                        Margin="0,0,8,0"/>
+                                
+                                <TextBlock Grid.Column="2" 
+                                         Text="FPS" 
+                                         VerticalAlignment="Center"
+                                         Foreground="#AAAAAA"
+                                         FontStyle="Italic"/>
+                            </Grid> -->
+                            
+                            <!-- Формат видео -->
+                            <Grid Grid.Row="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <TextBlock Grid.Column="0" 
+                                         Text="Формат видео:" 
+                                         VerticalAlignment="Center" 
+                                         Margin="0,0,12,0"
+                                         FontWeight="SemiBold"/>
+                                
+                                <ComboBox Grid.Column="1"
+                                        ItemsSource="{Binding AvailableVideoFormats}"
+                                        SelectedItem="{Binding Settings.VideoFormat}"
+                                        Style="{StaticResource ModernComboBoxStyle}"
+                                        ItemContainerStyle="{StaticResource ModernComboBoxItemStyle}"/>
+                            </Grid>
+                        </Grid>
+                    </StackPanel>
+                </GroupBox>
+                
+                <!-- Аудио настройки -->
+                <GroupBox Header="Аудио">
+                    <StackPanel Orientation="Vertical" Margin="5">
+                        <CheckBox Content="Записывать аудио" 
+                                IsChecked="{Binding Settings.RecordAudio}"
+                                Margin="0,0,0,10"/>
+                        
+                        <!-- Системный звук -->
+                        <Grid Margin="0,0,0,10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+    
+                            <TextBlock Grid.Row="0" 
+                                       Text="Системный звук:" 
+                                       Margin="0,0,0,5"
+                                       FontWeight="SemiBold"/>
+    
+                            <ComboBox Grid.Row="1"
+                                      ItemsSource="{Binding AvailableOutputDevices}"
+                                      SelectedValue="{Binding Settings.AudioOutputDevice}"
+                                      SelectedValuePath="Id"
+                                      DisplayMemberPath="Name"
+                                      Style="{StaticResource ModernComboBoxStyle}"
+                                      ItemContainerStyle="{StaticResource ModernComboBoxItemStyle}"/>
+                        </Grid>
+
+                        <!-- Микрофон -->
+                        <Grid Margin="0,0,0,10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+    
+                            <TextBlock Grid.Row="0" 
+                                       Text="Микрофон:" 
+                                       Margin="0,0,0,5"
+                                       FontWeight="SemiBold"/>
+    
+                            <ComboBox Grid.Row="1"
+                                      ItemsSource="{Binding AvailableInputDevices}"
+                                      SelectedValue="{Binding Settings.AudioInputDevice}"
+                                      SelectedValuePath="Id"
+                                      DisplayMemberPath="Name"
+                                      Style="{StaticResource ModernComboBoxStyle}"
+                                      ItemContainerStyle="{StaticResource ModernComboBoxItemStyle}"/>
+                        </Grid>
+                        
+                        <!-- Битрейт аудио -->
+                        <Grid Margin="0,0,0,10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            
+                            <TextBlock Grid.Row="0" 
+                                     Text="Качество аудио:" 
+                                     Margin="0,0,0,5"
+                                     FontWeight="SemiBold"/>
+                            
+                            <ComboBox Grid.Row="1"
+                                    ItemsSource="{Binding AvailableAudioBitrates}"
+                                    SelectedItem="{Binding Settings.AudioBitrate}"
+                                    Style="{StaticResource ModernComboBoxStyle}"
+                                    ItemContainerStyle="{StaticResource ModernComboBoxItemStyle}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding StringFormat={}{0} kbps}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </Grid>
+                        
+                        <!-- Информация об аудио -->
+                        <TextBlock TextWrapping="Wrap" Foreground="#AAAAAA" FontSize="11" LineHeight="16">
+                            <Run Text="• Для записи системного звука выберите устройство (Stereo Mix)"/><LineBreak/>
+                            <Run Text="• Для записи микрофона выберите микрофон"/><LineBreak/>
+                            <Run Text="• Оставьте 'Не выбрано' для отключения записи"/>
+                        </TextBlock>
+                    </StackPanel>
+                </GroupBox>
+                
+                <!-- Информация -->
+                <TextBlock TextWrapping="Wrap" Foreground="#AAAAAA" FontSize="11" LineHeight="16">
+                    <Run Text="• Рекомендуемые настройки для разных сценариев:"/><LineBreak/>
+                    <Run Text="  - Игры: 60 FPS, MP4, 128 kbps аудио"/><LineBreak/>
+                    <Run Text="  - Рабочий стол: 30 FPS, MP4, 96 kbps аудио"/><LineBreak/>
+                    <Run Text="  - Быстрые игры: 120+ FPS, MKV"/><LineBreak/>
+                    <Run Text="  - Презентации: 24-30 FPS, MP4"/><LineBreak/>
+                    <Run Text="• Высокий FPS требует больше ресурсов CPU"/><LineBreak/>
+                    <Run Text="• Реальный FPS зависит от производительности системы"/>
+                </TextBlock>
+                
+            </StackPanel>
+        </ScrollViewer>
+        
+        <!-- Кнопки внизу -->
+        <Border Grid.Row="1" Background="#2D2D30" Padding="12" Margin="0,10,0,0" CornerRadius="3">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="OK" 
+                        Style="{StaticResource DialogButtonStyle}"
+                        Command="{Binding OKCommand}"/>
+                <Button Content="Отмена" 
+                        Style="{StaticResource DialogButtonStyle}"
+                        Command="{Binding CancelCommand}"/>
+                <Button Content="Применить" 
+                        Style="{StaticResource DialogButtonStyle}"
+                        Command="{Binding ApplyCommand}"/>
+            </StackPanel>
+        </Border>
+        
+    </Grid>
+</Window>

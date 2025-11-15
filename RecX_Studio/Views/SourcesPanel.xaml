@@ -1,0 +1,154 @@
+<UserControl x:Class="RecX_Studio.Views.SourcesPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="clr-namespace:RecX_Studio.Views"
+             xmlns:vm="clr-namespace:RecX_Studio.ViewModels"
+             xmlns:converters="clr-namespace:RecX_Studio.Utils"
+             xmlns:utils="clr-namespace:RecX_Studio.Utils"
+             mc:Ignorable="d"
+             d:DesignHeight="300" d:DesignWidth="500"
+             MinHeight="120" MinWidth="400"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+    
+    <UserControl.Resources>
+        <!-- Конвертер для преобразования null в false -->
+        <utils:NullToFalseConverter x:Key="NullToFalseConverter"/>
+
+        <!-- Стиль для кнопок в кастомном меню -->
+        <Style x:Key="CustomMenuButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3E3E40"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="Gray"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Стиль для элемента источника -->
+        <Style x:Key="SourceItemStyle" TargetType="Border">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Margin" Value="1"/>
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="Padding" Value="3"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter Property="Background" Value="#007ACC"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+    
+    <Border Background="#252526" CornerRadius="5" Margin="0, 0.8, 0, 0.8">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Заголовок -->
+            <Border Grid.Row="0" Background="#2D2D30" CornerRadius="3,3,0,0" Padding="5,2">
+                <TextBlock Text="Источники" 
+                          Foreground="White"
+                          FontWeight="Bold"
+                          VerticalAlignment="Center"/>
+            </Border>
+
+            <!-- Прокручиваемый список источников -->
+            <ScrollViewer Grid.Row="1" 
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Disabled"
+                         Padding="2">
+                <ItemsControl ItemsSource="{Binding Sources}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource SourceItemStyle}"
+                                    MouseLeftButtonDown="SourceItem_Click">
+                                <DockPanel>
+                                    <!-- Чекбокс активности и название -->
+                                    <CheckBox IsChecked="{Binding IsEnabled}"
+                                              Margin="5,0"
+                                              VerticalAlignment="Center"
+                                              Checked="SourceCheckBox_Checked"
+                                              Unchecked="SourceCheckBox_Unchecked"/>
+                                    
+                                    <TextBlock Text="{Binding Name}" 
+                                              Foreground="White"
+                                              Margin="5,0"
+                                              VerticalAlignment="Center"
+                                              TextTrimming="CharacterEllipsis"
+                                              DockPanel.Dock="Left"/>
+                                    
+                                    <!-- Кнопка удаления для каждого источника -->
+                                    <Button Content="×" 
+                                            ToolTip="Удалить источник"
+                                            Width="18"
+                                            Height="18"
+                                            Margin="2"
+                                            DockPanel.Dock="Right"
+                                            Style="{StaticResource ZoomButtonStyle}"
+                                            Click="RemoveSource_Click"
+                                            Tag="{Binding}"/>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- Нижняя панель с кнопками управления -->
+            <Border Grid.Row="2" Background="#2D2D30" CornerRadius="0,0,3,3" Padding="5">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <!-- Кнопка добавления -->
+                    <Button Content="+" 
+                            ToolTip="Добавить источник"
+                            Width="26"
+                            Height="26"
+                            Margin="2, 2, 10, 2"
+                            Style="{StaticResource ZoomButtonStyle}"
+                            Click="AddSource_Click"/>
+                    
+                    <!-- Кнопка перемещения вверх -->
+                    <Button Content="↑" 
+                            ToolTip="Переместить выбранный источник вверх"
+                            Width="26"
+                            Height="26"
+                            Margin="0, 2, 10, 2"
+                            Style="{StaticResource ZoomButtonStyle}"
+                            Click="MoveSourceUp_Click"
+                            IsEnabled="{Binding CanMoveUp}"/>
+                    
+                    <!-- Кнопка перемещения вниз -->
+                    <Button Content="↓" 
+                            ToolTip="Переместить выбранный источник вниз"
+                            Width="26"
+                            Height="26"
+                            Margin="0, 2, 10, 2"
+                            Style="{StaticResource ZoomButtonStyle}"
+                            Click="MoveSourceDown_Click"
+                            IsEnabled="{Binding CanMoveDown}"/>
+                    
+                    <!-- Кнопка удаления выбранного источника -->
+                    <Button Content="×" 
+                            ToolTip="Удалить выбранный источник"
+                            Width="26"
+                            Height="26"
+                            Margin="0, 2, 10, 2"
+                            Style="{StaticResource ZoomButtonStyle}"
+                            Click="RemoveSelectedSource_Click"
+                            IsEnabled="{Binding SelectedSource, Converter={StaticResource NullToFalseConverter}}"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

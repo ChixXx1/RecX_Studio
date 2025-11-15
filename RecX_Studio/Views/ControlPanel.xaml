@@ -1,0 +1,39 @@
+<UserControl x:Class="RecX_Studio.Views.ControlPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="clr-namespace:RecX_Studio.Views"
+             mc:Ignorable="d"
+             Height="50">
+
+    <Border Background="#2D2D30" Padding="5">
+        <StackPanel Orientation="Horizontal">
+            <Button Content="⏺ Запись"
+                    Command="{Binding StartRecordingCommand}"
+                    Style="{StaticResource RecordButtonStyle}"/>
+            
+            <Button Content="{Binding CurrentState, Converter={StaticResource PauseButtonTextConverter}}"
+                    Command="{Binding PauseResumeCommand}"
+                    Style="{Binding CurrentState, Converter={StaticResource PauseButtonStyleConverter}}"/>
+            
+            <Button Content="■ Стоп" 
+                    Command="{Binding StopRecordingCommand}"
+                    Style="{Binding CurrentState, Converter={StaticResource StopButtonStyleConverter}}"/>
+            
+            <Separator Margin="10,0" Background="#5E5E5E" Width="1" Height="30"/>
+            
+            <TextBlock Text="Время: " 
+                      Foreground="White" 
+                      VerticalAlignment="Center"
+                      Margin="5,0,0,0"/>
+            
+            <TextBlock Text="{Binding TimerText}" 
+                      Foreground="White" 
+                      VerticalAlignment="Center"
+                      Width="60"
+                      FontWeight="Bold"
+                      Margin="5,0"/>
+        </StackPanel>
+    </Border>
+</UserControl>
