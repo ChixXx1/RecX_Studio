@@ -15,6 +15,8 @@ using RecX_Studio.Services;
 using RecX_Studio.Views;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Windows.Input;
+using RecX_Studio.Utils;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
@@ -32,29 +34,19 @@ public partial class MainViewModel : ObservableObject
     
     private readonly ScreenCaptureService _screenCaptureService;
     private readonly RecordingService _recordingService;
-    private readonly DirectXCaptureService _directXCaptureService; // НОВОЕ: DirectX захват
+    private readonly DirectXCaptureService _directXCaptureService;
     
     private RecordingState _currentState = RecordingState.Idle;
     private TimeSpan _recordingTime = TimeSpan.Zero;
     private MediaSource _selectedSource;
     private ImageSource _previewImage;
     private bool _isScreenCaptureActive;
-    private string _recordButtonText = "Начать запись";
-    private Brush _recordButtonColor = Brushes.Red;
-    
     private Settings _settings;
 
-    // Для подсчета реального FPS
-    private int _frameCount = 0;
-    private DateTime _lastFpsUpdate = DateTime.Now;
-
-    // НОВОЕ: Для переключения между методами захвата
-    private bool _useDirectXCapture = false;
-
-    public ObservableCollection<MediaSource> Sources => _sources;
-    public StatusInfo StatusInfo => _statusInfo;
-    public RecordingState CurrentState => _currentState;
-    public TimeSpan RecordingTime => _recordingTime;
+    // --- СВОЙСТВА ДЛЯ КНОПОК И ИХ СОСТОЯНИЙ ---
+    private string _recordButtonText = "⏺ Начать запись";
+    private Brush _recordButtonColor = Brushes.Red;
+    private string _recordButtonIcon = "⏺";
     
     public string RecordButtonText
     {
@@ -67,6 +59,39 @@ public partial class MainViewModel : ObservableObject
         get => _recordButtonColor;
         set => SetProperty(ref _recordButtonColor, value);
     }
+
+    public string RecordButtonIcon
+    {
+        get => _recordButtonIcon;
+        set => SetProperty(ref _recordButtonIcon, value);
+    }
+    // -------------------------------------------------
+
+    // Для подсчета реального FPS
+    private int _frameCount = 0;
+    private DateTime _lastFpsUpdate = DateTime.Now;
+
+    // НОВОЕ: Для переключения между методами захвата
+    private bool _useDirectXCapture = false;
+
+    public ObservableCollection<MediaSource> Sources => _sources;
+    public StatusInfo StatusInfo => _statusInfo;
+    
+    // --- ИЗМЕНЕННО: Сеттер теперь уведомляет UI об изменении состояния команд ---
+    public RecordingState CurrentState
+    {
+        get => _currentState;
+        private set 
+        { 
+            if (SetProperty(ref _currentState, value))
+            {
+                // Заставляем UI перепроверить, могут ли команды выполняться
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+    
+    public TimeSpan RecordingTime => _recordingTime;
     
     public ImageSource PreviewImage
     {
@@ -80,6 +105,12 @@ public partial class MainViewModel : ObservableObject
         set => SetProperty(ref _settings, value);
     }
     
+    // --- КОМАНДЫ ДЛЯ УПРАВЛЕНИЯ ЗАПИСЬЮ ---
+    public RelayCommand StartRecordingCommand { get; }
+    public RelayCommand PauseResumeCommand { get; }
+    public RelayCommand StopRecordingCommand { get; }
+    // -----------------------------------------
+
     public void StartAreaSelection(Action<Rectangle> onAreaSelected)
     {
         _screenCaptureService.StartAreaSelection(onAreaSelected);
@@ -93,7 +124,6 @@ public partial class MainViewModel : ObservableObject
         {
             StopScreenCapture();
             
-            // Для захвата области используем стандартный метод
             _screenCaptureService.StartAreaCapture(area, OnFrameCaptured, Settings.Fps);
             _isScreenCaptureActive = true;
             _useDirectXCapture = false;
@@ -297,9 +327,14 @@ public partial class MainViewModel : ObservableObject
         
         _screenCaptureService = new ScreenCaptureService();
         _recordingService = new RecordingService(_settings);
-        _directXCaptureService = new DirectXCaptureService(); // НОВОЕ: Инициализация DirectX захвата
+        _directXCaptureService = new DirectXCaptureService();
         
-        // Подписка на событие изменения статуса захвата
+        // --- ИНИЦИАЛИЗАЦИЯ КОМАНД ---
+        StartRecordingCommand = new RelayCommand(StartRecording, () => CurrentState == RecordingState.Idle);
+        PauseResumeCommand = new RelayCommand(PauseResumeRecording, () => CurrentState == RecordingState.Recording || CurrentState == RecordingState.Paused);
+        StopRecordingCommand = new RelayCommand(StopRecording, () => CurrentState != RecordingState.Idle);
+        // -----------------------------------------
+        
         _screenCaptureService.OnCaptureStatusChanged += (message) =>
         {
             Application.Current?.Dispatcher.Invoke(() =>
@@ -330,7 +365,6 @@ public partial class MainViewModel : ObservableObject
         
         Debug.WriteLine("🎯 MainViewModel инициализирован");
         
-        // НОВОЕ: Проверяем доступность DirectX захвата
         if (_directXCaptureService.IsAvailable())
         {
             Debug.WriteLine("✅ DirectX захват доступен");
@@ -375,7 +409,7 @@ public partial class MainViewModel : ObservableObject
             
             _screenCaptureService.StartWindowCapture(windowHandle, OnFrameCaptured, Settings.Fps);
             _isScreenCaptureActive = true;
-            _useDirectXCapture = false; // Для захвата окна используем стандартный метод
+            _useDirectXCapture = false;
             Debug.WriteLine($"✅ Захват окна запущен: {windowHandle}");
         }
         catch (Exception ex)
@@ -467,8 +501,6 @@ public partial class MainViewModel : ObservableObject
             StatusInfo.CpuUsage = "N/A";
         }
 
-        // FPS теперь обновляется в реальном времени в OnFrameCaptured
-        // Здесь только сбрасываем значение если не записываем
         if (_currentState != RecordingState.Recording)
         {
             StatusInfo.Fps = "00.00";
@@ -487,7 +519,6 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    // НОВЫЙ МЕТОД: Захват кадра с использованием DirectX
     private void CaptureDirectXFrame()
     {
         if (!_isScreenCaptureActive || !_useDirectXCapture) return;
@@ -503,7 +534,6 @@ public partial class MainViewModel : ObservableObject
                     
                     PreviewImage = frame;
                     
-                    // Подсчет FPS для DirectX захвата
                     if (_currentState == RecordingState.Recording)
                     {
                         _frameCount++;
@@ -526,26 +556,12 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             Debug.WriteLine($"❌ Ошибка DirectX захвата: {ex.Message}");
-            // При ошибке переключаемся на стандартный захват
             _useDirectXCapture = false;
             StartScreenCapture();
         }
     }
 
-    public void ToggleRecording()
-    {
-        Debug.WriteLine($"🔄 ToggleRecording. Текущее состояние: {_currentState}");
-
-        if (_currentState == RecordingState.Recording)
-        {
-            StopRecording();
-        }
-        else
-        {
-            StartRecording();
-        }
-    }
-
+    // --- МЕТОДЫ, ВЫЗЫВАЕМЫЕ КОМАНДАМИ ---
     public void StartRecording()
     {
         if (SelectedSource == null)
@@ -572,12 +588,10 @@ public partial class MainViewModel : ObservableObject
             _currentState = RecordingState.Recording;
             _recordingTime = TimeSpan.Zero;
             
-            // Сбрасываем счетчики FPS
             _frameCount = 0;
             _lastFpsUpdate = DateTime.Now;
         
-            RecordButtonText = "Остановить запись";
-            RecordButtonColor = Brushes.Cyan;
+            UpdateRecordButtonStyle();
             StatusInfo.RecordingTime = "00:00:00";
             StatusInfo.Fps = "00.00";
         
@@ -595,6 +609,60 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    public void PauseRecording()
+    {
+        if (_currentState != RecordingState.Recording) return;
+
+        try
+        {
+            _recordingService.PauseRecording();
+            _currentState = RecordingState.Paused;
+            
+            UpdateRecordButtonStyle();
+            
+            OnPropertyChanged(nameof(CurrentState));
+            Debug.WriteLine("✅ Запись поставлена на паузу");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"❌ Ошибка паузы записи: {ex.Message}");
+            ShowErrorMessage($"Ошибка паузы записи: {ex.Message}");
+        }
+    }
+
+    public void ResumeRecording()
+    {
+        if (_currentState != RecordingState.Paused) return;
+        
+        try
+        {
+            _recordingService.ResumeRecording();
+            _currentState = RecordingState.Recording;
+            
+            UpdateRecordButtonStyle();
+            
+            OnPropertyChanged(nameof(CurrentState));
+            Debug.WriteLine("✅ Запись возобновлена");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"❌ Ошибка возобновления записи: {ex.Message}");
+            ShowErrorMessage($"Ошибка возобновления записи: {ex.Message}");
+        }
+    }
+
+    public void PauseResumeRecording()
+    {
+        if (_currentState == RecordingState.Recording)
+        {
+            PauseRecording();
+        }
+        else if (_currentState == RecordingState.Paused)
+        {
+            ResumeRecording();
+        }
+    }
+
     public void StopRecording()
     {
         try
@@ -602,14 +670,18 @@ public partial class MainViewModel : ObservableObject
             Debug.WriteLine($"🔄 Остановка записи. Текущее состояние: {_currentState}");
 
             _recordingService.StopRecording();
-        
+    
             _currentState = RecordingState.Idle;
-            RecordButtonText = "Начать запись";
-            RecordButtonColor = Brushes.Red;
+        
+            // --- ДОБАВЬТЕ ЭТУ СТРОКУ ---
+            StatusInfo.RecordingTime = "00:00:00";
+            // -------------------------------
+        
+            UpdateRecordButtonStyle();
             StatusInfo.Fps = "00.00";
-        
+    
             OnPropertyChanged(nameof(CurrentState));
-        
+    
             Debug.WriteLine("✅ UI обновлен, запись остановлена");
 
             if (File.Exists(_recordingService.LastRecordingPath))
@@ -627,6 +699,35 @@ public partial class MainViewModel : ObservableObject
             ShowErrorMessage($"Ошибка остановки записи: {ex.Message}");
         }
     }
+
+    // --- ИЗМЕНЕННЫЙ МЕТОД: Обновляет текст и стиль кнопки ---
+    private void UpdateRecordButtonStyle()
+    {
+        if (_currentState == RecordingState.Recording)
+        {
+            RecordButtonText = "⏹ Идет запись";
+            RecordButtonColor = Brushes.Cyan;
+            RecordButtonIcon = "⏹";
+        }
+        else if (_currentState == RecordingState.Paused)
+        {
+            // ИЗМЕНЕНО: Основная кнопка теперь показывает статус "На паузе"
+            RecordButtonText = "⏸ На паузе";
+            RecordButtonColor = Brushes.Orange;
+            RecordButtonIcon = "⏸";
+        }
+        else // Idle
+        {
+            RecordButtonText = "⏺ Начать запись";
+            RecordButtonColor = Brushes.Red;
+            RecordButtonIcon = "⏺";
+        }
+        
+        OnPropertyChanged(nameof(RecordButtonText));
+        OnPropertyChanged(nameof(RecordButtonColor));
+        OnPropertyChanged(nameof(RecordButtonIcon));
+    }
+    // ---------------------------------------------------
 
     private string GetRecordingSavePath()
     {
@@ -733,8 +834,7 @@ public partial class MainViewModel : ObservableObject
             _currentState = RecordingState.Recording;
             _recordingTime = TimeSpan.Zero;
             
-            RecordButtonText = "Остановить запись";
-            RecordButtonColor = Brushes.Cyan;
+            UpdateRecordButtonStyle();
             StatusInfo.RecordingTime = "00:00:00";
             
             OnPropertyChanged(nameof(CurrentState));
@@ -867,11 +967,9 @@ public partial class MainViewModel : ObservableObject
         {
             Debug.WriteLine($"🎬 Запрос на запуск захвата экрана с FPS: {Settings.Fps}");
             
-            // НОВОЕ: Выбираем метод захвата в зависимости от доступности DirectX
             if (_useDirectXCapture && _directXCaptureService.IsAvailable())
             {
                 Debug.WriteLine("✅ Используем DirectX захват для лучшей производительности");
-                // Запускаем таймер для DirectX захвата
                 StartDirectXCaptureTimer();
             }
             else
@@ -889,7 +987,6 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    // НОВЫЙ МЕТОД: Таймер для DirectX захвата
     private Timer _directXCaptureTimer;
     private void StartDirectXCaptureTimer()
     {
@@ -908,7 +1005,6 @@ public partial class MainViewModel : ObservableObject
         {
             Debug.WriteLine("🛑 Запрос на остановку захвата...");
             
-            // Останавливаем оба возможных метода захвата
             _screenCaptureService.StopCapture();
             
             _directXCaptureTimer?.Stop();
@@ -929,19 +1025,16 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        // Подсчет реального FPS только во время записи
         if (_currentState == RecordingState.Recording)
         {
             _frameCount++;
             var now = DateTime.Now;
             var elapsed = (now - _lastFpsUpdate).TotalSeconds;
             
-            if (elapsed >= 1.0) // Обновляем FPS раз в секунду
+            if (elapsed >= 1.0)
             {
-                // Показываем целевой FPS, так как фильтр FFmpeg его гарантирует
-                // Но для отладки можно показать и реальный
                 var actualFps = (int)(_frameCount / elapsed);
-                StatusInfo.Fps = $"{Settings.Fps:00.00}"; // Показываем ЦЕЛЕВОЙ FPS
+                StatusInfo.Fps = $"{Settings.Fps:00.00}";
                 _frameCount = 0;
                 _lastFpsUpdate = now;
                 

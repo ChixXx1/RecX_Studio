@@ -1,5 +1,7 @@
 using RecX_Studio.Models;
 using RecX_Studio.Utils;
+using System;
+using System.Windows.Input;
 
 namespace RecX_Studio.ViewModels;
 
@@ -17,7 +19,12 @@ public class ControlPanelViewModel : ObservableObject, IRecordingController
     public RecordingState CurrentState
     {
         get => _currentState;
-        private set => SetProperty(ref _currentState, value);
+        private set 
+        { 
+            SetProperty(ref _currentState, value);
+            // Уведомляем об изменении состояния для обновления команд
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     public TimeSpan RecordingTime
@@ -28,6 +35,16 @@ public class ControlPanelViewModel : ObservableObject, IRecordingController
 
     public string TimerText => RecordingTime.ToString(@"hh\:mm\:ss");
 
+    // Свойства для текста и иконки кнопок
+    public string RecordButtonText => CurrentState switch
+    {
+        RecordingState.Recording => "⏹ Остановить",
+        RecordingState.Paused => "▶ Возобновить",
+        _ => "⏺ Начать запись"
+    };
+
+    public string PauseButtonText => CurrentState == RecordingState.Recording ? "⏸ Пауза" : "▶ Возобновить";
+
     // Команды
     public RelayCommand StartRecordingCommand { get; }
     public RelayCommand PauseResumeCommand { get; }
@@ -36,7 +53,7 @@ public class ControlPanelViewModel : ObservableObject, IRecordingController
     public ControlPanelViewModel()
     {
         StartRecordingCommand = new RelayCommand(StartRecording, () => CurrentState == RecordingState.Idle);
-        PauseResumeCommand = new RelayCommand(PauseResumeRecording, () => CurrentState != RecordingState.Idle);
+        PauseResumeCommand = new RelayCommand(PauseResumeRecording, () => CurrentState == RecordingState.Recording || CurrentState == RecordingState.Paused);
         StopRecordingCommand = new RelayCommand(StopRecording, () => CurrentState != RecordingState.Idle);
     }
 

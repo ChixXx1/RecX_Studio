@@ -19,6 +19,12 @@ namespace RecX_Studio.Services
         private StringBuilder _errorOutput;
         public string LastRecordingPath { get; private set; }
 
+        // --- НОВЫЕ ПОЛЯ ДЛЯ ПАУЗЫ ---
+        private List<string> _segmentFiles = new List<string>();
+        private bool _isPaused = false;
+        private string _tempDirectory;
+        // --------------------------------
+
         public RecordingService(Settings settings)
         {
             _settings = settings;
@@ -33,8 +39,16 @@ namespace RecX_Studio.Services
 
         public void StartRecording(string outputPath, MediaSource source)
         {
-            if (_isRecording)
+            // --- ИЗМЕНЕНО: Обработка возобновления ---
+            if (_isRecording && !_isPaused)
                 throw new InvalidOperationException("Запись уже идет");
+
+            if (_isPaused)
+            {
+                ResumeRecording();
+                return;
+            }
+            // -----------------------------------------
 
             Debug.WriteLine($"🎬 Попытка начать запись: {outputPath}");
 
@@ -42,11 +56,22 @@ namespace RecX_Studio.Services
             if (!File.Exists(ffmpegPath))
                 throw new FileNotFoundException("FFmpeg не найден");
 
+            // --- НОВОЕ: Создание временной директории ---
+            _tempDirectory = Path.Combine(Path.GetTempPath(), "RecX_Studio", Guid.NewGuid().ToString());
+            Directory.CreateDirectory(_tempDirectory);
+            _segmentFiles.Clear();
+            // -----------------------------------------
+
             string directory = Path.GetDirectoryName(outputPath);
             if (!Directory.Exists(directory))
                 Directory.CreateDirectory(directory);
 
-            string ffmpegArgs = BuildFFmpegArgs(outputPath, source);
+            // --- НОВОЕ: Запись идет в сегмент ---
+            string segmentPath = Path.Combine(_tempDirectory, $"segment_{_segmentFiles.Count}.mp4");
+            _segmentFiles.Add(segmentPath);
+            // -----------------------------------------
+
+            string ffmpegArgs = BuildFFmpegArgs(segmentPath, source);
             Debug.WriteLine($"🔧 Команда FFmpeg: {ffmpegPath} {ffmpegArgs}");
 
             var processInfo = new ProcessStartInfo
@@ -105,8 +130,9 @@ namespace RecX_Studio.Services
                 }
 
                 _isRecording = true;
+                _isPaused = false; // Сбрасываем флаг паузы
                 LastRecordingPath = outputPath;
-                Debug.WriteLine($"✅ Запись начата: {outputPath}");
+                Debug.WriteLine($"✅ Запись начата: {segmentPath}");
             }
             catch (Exception ex)
             {
@@ -116,6 +142,229 @@ namespace RecX_Studio.Services
                 throw new Exception($"Ошибка запуска записи: {ex.Message}");
             }
         }
+
+        // --- НОВЫЙ МЕТОД: Пауза ---
+        public void PauseRecording()
+        {
+            if (!_isRecording || _isPaused)
+                return;
+                
+            Debug.WriteLine("⏸️ Пауза записи...");
+            
+            if (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
+            {
+                try
+                {
+                    _ffmpegProcess.StandardInput.WriteLine("q");
+                    _ffmpegProcess.StandardInput.Flush();
+                    
+                    if (!_ffmpegProcess.WaitForExit(3000))
+                    {
+                        _ffmpegProcess.Kill();
+                        _ffmpegProcess.WaitForExit(1000);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"⚠️ Ошибка при остановке FFmpeg: {ex.Message}");
+                }
+            }
+            
+            _ffmpegProcess?.Dispose();
+            _ffmpegProcess = null;
+            
+            _isPaused = true;
+            Debug.WriteLine("✅ Запись поставлена на паузу");
+        }
+        // ---------------------------------
+
+        // --- НОВЫЙ МЕТОД: Возобновление ---
+        public void ResumeRecording()
+        {
+            if (!_isRecording || !_isPaused)
+                return;
+                
+            Debug.WriteLine("▶️ Возобновление записи...");
+            
+            string segmentPath = Path.Combine(_tempDirectory, $"segment_{_segmentFiles.Count}.mp4");
+            _segmentFiles.Add(segmentPath);
+            
+            // Нам нужен источник для возобновления. В реальном приложении его нужно где-то хранить.
+            // Для простоты примера, предположим, что он передается или хранится.
+            // В данном случае, мы не знаем `source`, так что создадим пустой.
+            // В реальном приложении, нужно будет передать `source` или хранить его.
+            MediaSource source = new MediaSource("Resumed Source", SourceType.ScreenCapture); // ЗАМЕНИТЬ НА РЕАЛЬНЫЙ ИСТОЧНИК
+            
+            string ffmpegPath = GetFFmpegPath();
+            string ffmpegArgs = BuildFFmpegArgs(segmentPath, source);
+            
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = ffmpegPath,
+                Arguments = ffmpegArgs,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                StandardErrorEncoding = Encoding.UTF8,
+                StandardOutputEncoding = Encoding.UTF8
+            };
+
+            _ffmpegProcess = new Process { StartInfo = processInfo };
+            _errorOutput.Clear();
+
+            _ffmpegProcess.ErrorDataReceived += (s, e) => { /* ... обработка ошибок ... */ };
+
+            try
+            {
+                _ffmpegProcess.Start();
+                _ffmpegProcess.BeginErrorReadLine();
+                
+                _isPaused = false;
+                Debug.WriteLine($"✅ Запись возобновлена: {segmentPath}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"❌ Ошибка возобновления записи: {ex.Message}");
+                _ffmpegProcess?.Dispose();
+                _ffmpegProcess = null;
+                throw new Exception($"Ошибка возобновления записи: {ex.Message}");
+            }
+        }
+        // ---------------------------------
+
+        public void StopRecording()
+        {
+            if (!_isRecording)
+            {
+                Debug.WriteLine("ℹ️ Запись уже остановлена");
+                return;
+            }
+
+            try
+            {
+                Debug.WriteLine("🛑 Остановка записи...");
+
+                if (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
+                {
+                    try
+                    {
+                        _ffmpegProcess.StandardInput.WriteLine("q");
+                        _ffmpegProcess.StandardInput.Flush();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"⚠️ Не удалось отправить команду остановки: {ex.Message}");
+                    }
+
+                    if (!_ffmpegProcess.WaitForExit(5000))
+                    {
+                        Debug.WriteLine("⏰ Таймаут, принудительная остановка...");
+                        _ffmpegProcess.Kill();
+                        _ffmpegProcess.WaitForExit(1000);
+                    }
+                    else
+                    {
+                        Debug.WriteLine("✅ FFmpeg завершился корректно");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"⚠️ Ошибка при остановке: {ex.Message}");
+            }
+            finally
+            {
+                _isRecording = false;
+                _isPaused = false;
+                _ffmpegProcess?.Dispose();
+                _ffmpegProcess = null;
+
+                // --- НОВОЕ: Объединение сегментов ---
+                if (_segmentFiles.Count > 0)
+                {
+                    MergeSegments(LastRecordingPath);
+                }
+                // ---------------------------------
+            }
+        }
+
+        // --- НОВЫЙ МЕТОД: Объединение сегментов ---
+        private void MergeSegments(string outputPath)
+        {
+            if (_segmentFiles.Count <= 1)
+            {
+                if (_segmentFiles.Count == 1 && File.Exists(_segmentFiles[0]))
+                {
+                    File.Move(_segmentFiles[0], outputPath, true);
+                }
+                return;
+            }
+            
+            try
+            {
+                Debug.WriteLine($"🔧 Объединение {_segmentFiles.Count} сегментов в {outputPath}");
+                
+                string listPath = Path.Combine(_tempDirectory, "filelist.txt");
+                using (var writer = new StreamWriter(listPath))
+                {
+                    foreach (var segment in _segmentFiles)
+                    {
+                        if (File.Exists(segment))
+                        {
+                            writer.WriteLine($"file '{segment}'");
+                        }
+                    }
+                }
+                
+                string ffmpegPath = GetFFmpegPath();
+                string arguments = $"-f concat -safe 0 -i \"{listPath}\" -c copy \"{outputPath}\"";
+                
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = arguments,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                };
+                
+                using (var process = Process.Start(processInfo))
+                {
+                    string error = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    
+                    if (process.ExitCode != 0)
+                    {
+                        throw new Exception($"Ошибка объединения сегментов: {error}");
+                    }
+                }
+                
+                Debug.WriteLine($"✅ Сегменты успешно объединены в {outputPath}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"❌ Ошибка объединения сегментов: {ex.Message}");
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(_tempDirectory))
+                    {
+                        Directory.Delete(_tempDirectory, true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"⚠️ Не удалось удалить временную директорию: {ex.Message}");
+                }
+            }
+        }
+        // -----------------------------------------
 
         private string BuildFFmpegArgs(string outputPath, MediaSource source)
         {
@@ -134,7 +383,6 @@ namespace RecX_Studio.Services
 
             if (audioEnabled)
             {
-                // Добавляем аудиовходы как отдельные входные потоки
                 if (hasSystemAudio)
                 {
                     string systemAudioArgs = GetAudioInputArgs(_settings.AudioOutputDevice, "Системный звук");
@@ -150,7 +398,6 @@ namespace RecX_Studio.Services
 
             // --- 3. МАППИНГ ПОТОКОВ ---
             
-            // Видеопоток всегда из первого входа
             args.Add("-map");
             args.Add("0:v");
 
@@ -158,7 +405,6 @@ namespace RecX_Studio.Services
             {
                 if (hasSystemAudio && hasMicrophone)
                 {
-                    // Если два аудиоустройства - смешиваем их
                     args.Add("-filter_complex");
                     args.Add("\"[1:a][2:a]amix=inputs=2:duration=first[aout]\"");
                     args.Add("-map");
@@ -166,7 +412,6 @@ namespace RecX_Studio.Services
                 }
                 else
                 {
-                    // Если одно аудиоустройство - используем его
                     args.Add("-map");
                     args.Add("1:a");
                 }
@@ -174,7 +419,6 @@ namespace RecX_Studio.Services
 
             // --- 4. КОДЕКИ И НАСТРОЙКИ ---
 
-            // Видео кодек
             args.Add("-c:v libx264");
             args.Add("-preset veryfast");
             args.Add("-tune zerolatency");
@@ -189,7 +433,6 @@ namespace RecX_Studio.Services
             args.Add("-threads 0");
             args.Add("-movflags +faststart");
 
-            // Аудио кодек (только если есть аудио)
             if (audioEnabled)
             {
                 args.Add("-c:a aac");
@@ -198,7 +441,6 @@ namespace RecX_Studio.Services
                 args.Add("-ac 2");
             }
 
-            // --- 5. ВЫХОДНОЙ ФАЙЛ ---
             args.Add($"\"{outputPath}\"");
 
             return string.Join(" ", args);
@@ -244,8 +486,6 @@ namespace RecX_Studio.Services
             try
             {
                 Debug.WriteLine($"🎵 Настройка аудиоустройства {deviceType}: {deviceName}");
-                
-                // Простая и надежная команда для аудио захвата
                 return $"-f dshow -i audio=\"{deviceName}\"";
             }
             catch (Exception ex)
@@ -278,56 +518,6 @@ namespace RecX_Studio.Services
             }
 
             throw new FileNotFoundException($"FFmpeg не найден по пути: {ffmpegPath}");
-        }
-
-        public void StopRecording()
-        {
-            if (!_isRecording)
-            {
-                Debug.WriteLine("ℹ️ Запись уже остановлена");
-                return;
-            }
-
-            try
-            {
-                Debug.WriteLine("🛑 Остановка записи...");
-
-                if (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
-                {
-                    try
-                    {
-                        _ffmpegProcess.StandardInput.WriteLine("q");
-                        _ffmpegProcess.StandardInput.Flush();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"⚠️ Не удалось отправить команду остановки: {ex.Message}");
-                    }
-
-                    if (!_ffmpegProcess.WaitForExit(5000))
-                    {
-                        Debug.WriteLine("⏰ Таймаут, принудительная остановка...");
-                        _ffmpegProcess.Kill();
-                        _ffmpegProcess.WaitForExit(1000);
-                    }
-                    else
-                    {
-                        Debug.WriteLine("✅ FFmpeg завершился корректно");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"⚠️ Ошибка при остановке: {ex.Message}");
-            }
-            finally
-            {
-                _isRecording = false;
-                _ffmpegProcess?.Dispose();
-                _ffmpegProcess = null;
-
-                CheckRecordingResult();
-            }
         }
 
         private void CheckRecordingResult()

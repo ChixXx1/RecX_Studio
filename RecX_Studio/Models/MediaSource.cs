@@ -1,5 +1,3 @@
-// Файл: Models/MediaSource.cs
-
 using System;
 using System.ComponentModel;
 using System.Drawing; // <-- ДОБАВЛЕНО: необходимо для типа Rectangle

@@ -49,7 +49,7 @@
             </Border>
             
             <!-- Панель масштабирования -->
-            <Border Grid.Row="1" 
+            <!-- <Border Grid.Row="1" 
                     Background="#2D2D30" 
                     Height="30" 
                     CornerRadius="0"
@@ -89,7 +89,7 @@
                             ToolTip="Сбросить масштаб (Ctrl+0)"
                             Margin="10,0,0,0"/>
                 </StackPanel>
-            </Border>
+            </Border> -->
 
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
