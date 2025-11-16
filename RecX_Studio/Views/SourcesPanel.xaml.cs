@@ -49,7 +49,6 @@ public partial class SourcesPanel : UserControl
         var stackPanel = new StackPanel();
         
         AddMenuButton(stackPanel, "Захват экрана", "ScreenCapture");
-        //AddMenuButton(stackPanel, "Захват окна", "WindowCapture");
         AddMenuButton(stackPanel, "Захват области", "AreaCapture");
         AddMenuSeparator(stackPanel);
 
@@ -92,7 +91,9 @@ public partial class SourcesPanel : UserControl
         var button = new Button
         {
             Content = content,
-            Style = (Style)FindResource("CustomMenuButtonStyle"),
+            Style = (Style)FindResource("ZoomButtonStyle"),
+            Height = 40,
+            Margin = new Thickness(3),
             Tag = sourceType
         };
         button.Click += (s, e) => 
@@ -216,24 +217,9 @@ public partial class SourcesPanel : UserControl
         {
             if (DataContext is MainViewModel mainVm)
             {
+                // Просто устанавливаем выбранный источник для визуального выделения.
+                // Вся логика захвата теперь зависит от ActiveSource.
                 mainVm.SelectedSource = source;
-            
-                // Автоматически запускаем захват при выборе источника
-                if (source.IsEnabled)
-                {
-                    if (source.Type == SourceType.ScreenCapture)
-                    {
-                        mainVm.StartScreenCapture();
-                    }
-                    else if (source.Type == SourceType.WindowCapture && source.WindowHandle != IntPtr.Zero)
-                    {
-                        mainVm.StartWindowCapture(source.WindowHandle);
-                    }
-                    else if (source.Type == SourceType.AreaCapture && source.CaptureArea != Rectangle.Empty) // НОВОЕ
-                    {
-                        mainVm.StartAreaCapture(source.CaptureArea);
-                    }
-                }
             }
         }
     }
@@ -244,23 +230,8 @@ public partial class SourcesPanel : UserControl
         if (sender is CheckBox checkBox && checkBox.DataContext is MediaSource source)
         {
             var mainVm = DataContext as MainViewModel;
-            if (mainVm != null)
-            {
-                mainVm.ToggleSource(source);
-                
-                // Если источник выбран и включен, запускаем захват
-                if (mainVm.SelectedSource == source && source.IsEnabled)
-                {
-                    if (source.Type == SourceType.ScreenCapture)
-                    {
-                        mainVm.StartScreenCapture();
-                    }
-                    else if (source.Type == SourceType.WindowCapture && source.WindowHandle != IntPtr.Zero)
-                    {
-                        mainVm.StartWindowCapture(source.WindowHandle);
-                    }
-                }
-            }
+            // Просто переключаем состояние. MainViewModel сам разберется, что делать дальше.
+            mainVm?.ToggleSource(source);
         }
     }
 

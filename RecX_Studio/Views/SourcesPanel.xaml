@@ -16,33 +16,28 @@
         <!-- Конвертер для преобразования null в false -->
         <utils:NullToFalseConverter x:Key="NullToFalseConverter"/>
 
-        <!-- Стиль для кнопок в кастомном меню -->
-        <Style x:Key="CustomMenuButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="15,8"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#3E3E40"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Foreground" Value="Gray"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Стиль для элемента источника -->
+        <!-- Обновленный стиль для элемента источника -->
         <Style x:Key="SourceItemStyle" TargetType="Border">
             <Setter Property="Background" Value="#2D2D30"/>
             <Setter Property="Margin" Value="1"/>
             <Setter Property="CornerRadius" Value="3"/>
-            <Setter Property="Padding" Value="3"/>
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="BorderThickness" Value="3,0,0,0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>
+                <!-- Эффект наведения на весь элемент -->
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#353538"/>
+                </Trigger>
+                <!-- Выделенный элемент -->
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter Property="Background" Value="#007ACC"/>
+                    <Setter Property="Background" Value="#1E3A5F"/>
+                    <Setter Property="BorderBrush" Value="#007ACC"/>
+                </DataTrigger>
+                 <!-- Неактивный элемент -->
+                <DataTrigger Binding="{Binding IsEnabled}" Value="False">
+                    <Setter Property="Opacity" Value="0.6"/>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -64,7 +59,7 @@
                           VerticalAlignment="Center"/>
             </Border>
 
-            <!-- Прокручиваемый список источников -->
+            <!-- Прокручиваемый список источников с новым шаблоном -->
             <ScrollViewer Grid.Row="1" 
                          VerticalScrollBarVisibility="Auto"
                          HorizontalScrollBarVisibility="Disabled"
@@ -74,32 +69,66 @@
                         <DataTemplate>
                             <Border Style="{StaticResource SourceItemStyle}"
                                     MouseLeftButtonDown="SourceItem_Click">
-                                <DockPanel>
-                                    <!-- Чекбокс активности и название -->
-                                    <CheckBox IsChecked="{Binding IsEnabled}"
-                                              Margin="5,0"
-                                              VerticalAlignment="Center"
-                                              Checked="SourceCheckBox_Checked"
-                                              Unchecked="SourceCheckBox_Unchecked"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Иконка типа источника -->
+                                    <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="18" Margin="0,0,8,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="❓"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Type}" Value="ScreenCapture">
+                                                        <Setter Property="Text" Value="🖥️"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Type}" Value="WindowCapture">
+                                                        <Setter Property="Text" Value="🪟"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Type}" Value="AreaCapture">
+                                                        <Setter Property="Text" Value="✂️"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     
-                                    <TextBlock Text="{Binding Name}" 
+                                    <!-- Название источника -->
+                                    <TextBlock Grid.Column="1" 
+                                              Text="{Binding Name}" 
                                               Foreground="White"
-                                              Margin="5,0"
                                               VerticalAlignment="Center"
                                               TextTrimming="CharacterEllipsis"
-                                              DockPanel.Dock="Left"/>
-                                    
-                                    <!-- Кнопка удаления для каждого источника -->
-                                    <Button Content="×" 
+                                              Margin="0,0,5,0"/>
+
+                                    <!-- Кнопка удаления (появляется при наведении) -->
+                                    <Button Grid.Column="2" 
+                                            Name="DeleteButton"
+                                            Content="✕" 
                                             ToolTip="Удалить источник"
-                                            Width="18"
-                                            Height="18"
-                                            Margin="2"
-                                            DockPanel.Dock="Right"
-                                            Style="{StaticResource ZoomButtonStyle}"
+                                            Width="24"
+                                            Height="24"
+                                            Margin="0"
+                                            Padding="0"
                                             Click="RemoveSource_Click"
-                                            Tag="{Binding}"/>
-                                </DockPanel>
+                                            Tag="{Binding}">
+                                        <!-- ИСПРАВЛЕНО: Убран атрибут Style, оставлен только блок Button.Style -->
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource ZoomButtonStyle}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <!-- Кнопка смотрит на IsMouseOver родительского Border -->
+                                                    <DataTrigger Binding="{Binding Path=IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </Grid>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

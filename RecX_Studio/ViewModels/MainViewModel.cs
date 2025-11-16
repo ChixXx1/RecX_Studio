@@ -22,6 +22,7 @@ using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
 using Pen = System.Windows.Media.Pen;
 using Point = System.Windows.Point;
+using System.Threading.Tasks;
 
 namespace RecX_Studio.ViewModels;
 
@@ -33,6 +34,7 @@ public partial class MainViewModel : ObservableObject
     private readonly PerformanceCounter? _cpuCounter;
     
     private readonly ScreenCaptureService _screenCaptureService;
+    private readonly ScreenCaptureService _previewCaptureService;
     private readonly RecordingService _recordingService;
     private readonly DirectXCaptureService _directXCaptureService;
     
@@ -47,6 +49,9 @@ public partial class MainViewModel : ObservableObject
     private string _recordButtonText = "⏺ Начать запись";
     private Brush _recordButtonColor = Brushes.Red;
     private string _recordButtonIcon = "⏺";
+    
+    // --- УДАЛЕНО: Свойство SelectedFormat и массив SupportedFormats ---
+    // Теперь формат всегда берется из Settings.VideoFormat
     
     public string RecordButtonText
     {
@@ -65,19 +70,18 @@ public partial class MainViewModel : ObservableObject
         get => _recordButtonIcon;
         set => SetProperty(ref _recordButtonIcon, value);
     }
-    // -------------------------------------------------
+
+    public MediaSource ActiveSource => _selectedSource ?? _sources.FirstOrDefault();
 
     // Для подсчета реального FPS
     private int _frameCount = 0;
     private DateTime _lastFpsUpdate = DateTime.Now;
 
-    // НОВОЕ: Для переключения между методами захвата
     private bool _useDirectXCapture = false;
 
     public ObservableCollection<MediaSource> Sources => _sources;
     public StatusInfo StatusInfo => _statusInfo;
     
-    // --- ИЗМЕНЕННО: Сеттер теперь уведомляет UI об изменении состояния команд ---
     public RecordingState CurrentState
     {
         get => _currentState;
@@ -85,7 +89,6 @@ public partial class MainViewModel : ObservableObject
         { 
             if (SetProperty(ref _currentState, value))
             {
-                // Заставляем UI перепроверить, могут ли команды выполняться
                 CommandManager.InvalidateRequerySuggested();
             }
         }
@@ -109,7 +112,114 @@ public partial class MainViewModel : ObservableObject
     public RelayCommand StartRecordingCommand { get; }
     public RelayCommand PauseResumeCommand { get; }
     public RelayCommand StopRecordingCommand { get; }
+    public RelayCommand ChooseSaveLocationCommand { get; }
     // -----------------------------------------
+
+    public MainViewModel()
+    {
+        _settings = Settings.Load();
+        
+        _screenCaptureService = new ScreenCaptureService();
+        _previewCaptureService = new ScreenCaptureService();
+        _recordingService = new RecordingService(_settings);
+        _directXCaptureService = new DirectXCaptureService();
+        
+        StartRecordingCommand = new RelayCommand(StartRecording, () => CurrentState == RecordingState.Idle);
+        PauseResumeCommand = new RelayCommand(PauseResumeRecording, () => CurrentState == RecordingState.Recording || CurrentState == RecordingState.Paused);
+        StopRecordingCommand = new RelayCommand(StopRecording, () => CurrentState != RecordingState.Idle);
+        ChooseSaveLocationCommand = new RelayCommand(ChooseSaveLocation);
+        
+        _screenCaptureService.OnCaptureStatusChanged += (message) =>
+        {
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                Debug.WriteLine($"Статус захвата изменен: {message}");
+                StatusInfo.RecordingTime = message; 
+            });
+        };
+
+        _statusTimer = new Timer(1000);
+        _statusTimer.Elapsed += UpdateStatusInfo;
+        _statusTimer.Start();
+        
+        CheckFFmpegOnStartup();
+
+        try
+        {
+            _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
+        }
+        catch
+        {
+            _cpuCounter = null;
+        }
+
+        PreviewImage = CreateDefaultPreview();
+        UpdateStatusInfo(null, null);
+        
+        Debug.WriteLine("🎯 MainViewModel инициализирован");
+        
+        if (_directXCaptureService.IsAvailable())
+        {
+            Debug.WriteLine("✅ DirectX захват доступен");
+            _useDirectXCapture = true;
+        }
+        else
+        {
+            Debug.WriteLine("⚠️ DirectX захват недоступен, используем стандартный метод");
+            _useDirectXCapture = false;
+        }
+    }
+
+    // --- ИЗМЕНЕННЫЙ МЕТОД: Активация захвата для предпросмотра в режиме ожидания ---
+    private void ActivateActiveSource()
+    {
+        var activeSource = ActiveSource;
+        if (activeSource == null || !activeSource.IsEnabled)
+        {
+            StopScreenCapture();
+            Debug.WriteLine("🛑 Активный источник не найден или неактивен, захват остановлен.");
+            return;
+        }
+
+        Debug.WriteLine($"🎯 Активация источника для предпросмотра (Idle): {activeSource.Name} ({activeSource.Type})");
+
+        try
+        {
+            _previewCaptureService.StopCapture();
+            StopScreenCapture();
+
+            switch (activeSource.Type)
+            {
+                case SourceType.ScreenCapture:
+                    StartScreenCapture();
+                    break;
+                case SourceType.WindowCapture:
+                    if (activeSource.WindowHandle != IntPtr.Zero)
+                    {
+                        StartWindowCapture(activeSource.WindowHandle);
+                    }
+                    else
+                    {
+                        Debug.WriteLine("⚠️ WindowHandle для активного источника окна равен IntPtr.Zero.");
+                    }
+                    break;
+                case SourceType.AreaCapture:
+                    if (activeSource.CaptureArea != Rectangle.Empty)
+                    {
+                        StartAreaCapture(activeSource.CaptureArea);
+                    }
+                    else
+                    {
+                        Debug.WriteLine("⚠️ CaptureArea для активного источника области пуста.");
+                    }
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"❌ Ошибка активации источника {activeSource.Name}: {ex.Message}");
+        }
+    }
 
     public void StartAreaSelection(Action<Rectangle> onAreaSelected)
     {
@@ -122,8 +232,6 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            StopScreenCapture();
-            
             _screenCaptureService.StartAreaCapture(area, OnFrameCaptured, Settings.Fps);
             _isScreenCaptureActive = true;
             _useDirectXCapture = false;
@@ -237,10 +345,12 @@ public partial class MainViewModel : ObservableObject
             
             if (result == true)
             {
-                Debug.WriteLine("✅ Настройки сохранены через OK");
+                // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Перезагружаем настройки после их сохранения ---
+                Debug.WriteLine("✅ Настройки сохранены через OK, перезагружаем в MainViewModel.");
+                _settings = Settings.Load(); 
+                OnPropertyChanged(nameof(Settings)); // Уведомляем UI
+                _recordingService.UpdateSettings(Settings);
             }
-            
-            _recordingService.UpdateSettings(Settings);
         }
         catch (Exception ex)
         {
@@ -280,102 +390,25 @@ public partial class MainViewModel : ObservableObject
             {
                 _selectedSource.IsSelected = false;
             }
-    
+
             _selectedSource = value;
-        
+
             if (_selectedSource != null)
             {
                 _selectedSource.IsSelected = true;
-            
-                if (_selectedSource.IsEnabled)
-                {
-                    if (_selectedSource.Type == SourceType.ScreenCapture)
-                    {
-                        StartScreenCapture();
-                    }
-                    else if (_selectedSource.Type == SourceType.WindowCapture && _selectedSource.WindowHandle != IntPtr.Zero)
-                    {
-                        StartWindowCapture(_selectedSource.WindowHandle);
-                    }
-                    else if (_selectedSource.Type == SourceType.AreaCapture && _selectedSource.CaptureArea != Rectangle.Empty)
-                    {
-                        StartAreaCapture(_selectedSource.CaptureArea);
-                    }
-                }
-                else
-                {
-                    StopScreenCapture();
-                }
             }
-            else
-            {
-                StopScreenCapture();
-            }
-    
+
+            ActivateActiveSource();
+
             OnPropertyChanged(nameof(SelectedSource));
             OnPropertyChanged(nameof(CanMoveUp));
             OnPropertyChanged(nameof(CanMoveDown));
+            OnPropertyChanged(nameof(ActiveSource));
         }
     }
     
     public bool CanMoveUp => SelectedSource != null && _sources.IndexOf(SelectedSource) > 0;
     public bool CanMoveDown => SelectedSource != null && _sources.IndexOf(SelectedSource) < _sources.Count - 1;
-
-    public MainViewModel()
-    {
-        _settings = Settings.Load();
-        
-        _screenCaptureService = new ScreenCaptureService();
-        _recordingService = new RecordingService(_settings);
-        _directXCaptureService = new DirectXCaptureService();
-        
-        // --- ИНИЦИАЛИЗАЦИЯ КОМАНД ---
-        StartRecordingCommand = new RelayCommand(StartRecording, () => CurrentState == RecordingState.Idle);
-        PauseResumeCommand = new RelayCommand(PauseResumeRecording, () => CurrentState == RecordingState.Recording || CurrentState == RecordingState.Paused);
-        StopRecordingCommand = new RelayCommand(StopRecording, () => CurrentState != RecordingState.Idle);
-        // -----------------------------------------
-        
-        _screenCaptureService.OnCaptureStatusChanged += (message) =>
-        {
-            Application.Current?.Dispatcher.Invoke(() =>
-            {
-                Debug.WriteLine($"Статус захвата изменен: {message}");
-                StatusInfo.RecordingTime = message; 
-            });
-        };
-
-        _statusTimer = new Timer(1000);
-        _statusTimer.Elapsed += UpdateStatusInfo;
-        _statusTimer.Start();
-        
-        CheckFFmpegOnStartup();
-
-        try
-        {
-            _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-        }
-        catch
-        {
-            _cpuCounter = null;
-        }
-
-        PreviewImage = CreateDefaultPreview();
-
-        UpdateStatusInfo(null, null);
-        
-        Debug.WriteLine("🎯 MainViewModel инициализирован");
-        
-        if (_directXCaptureService.IsAvailable())
-        {
-            Debug.WriteLine("✅ DirectX захват доступен");
-            _useDirectXCapture = true;
-        }
-        else
-        {
-            Debug.WriteLine("⚠️ DirectX захват недоступен, используем стандартный метод");
-            _useDirectXCapture = false;
-        }
-    }
 
     public List<ModernWindowCaptureService.WindowInfo> GetAvailableWindows()
     {
@@ -403,20 +436,10 @@ public partial class MainViewModel : ObservableObject
     {
         Debug.WriteLine($"🎬 Запуск захвата окна: {windowHandle}");
         
-        try
-        {
-            StopScreenCapture();
-            
-            _screenCaptureService.StartWindowCapture(windowHandle, OnFrameCaptured, Settings.Fps);
-            _isScreenCaptureActive = true;
-            _useDirectXCapture = false;
-            Debug.WriteLine($"✅ Захват окна запущен: {windowHandle}");
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"❌ Ошибка запуска захвата окна: {ex.Message}");
-            ShowErrorMessage($"Ошибка запуска захвата окна: {ex.Message}");
-        }
+        _screenCaptureService.StartWindowCapture(windowHandle, OnFrameCaptured, Settings.Fps);
+        _isScreenCaptureActive = true;
+        _useDirectXCapture = false;
+        Debug.WriteLine($"✅ Захват окна запущен: {windowHandle}");
     }
     
     private void CheckFFmpegOnStartup()
@@ -528,29 +551,7 @@ public partial class MainViewModel : ObservableObject
             var frame = _directXCaptureService.CaptureScreen();
             if (frame != null)
             {
-                Application.Current?.Dispatcher.Invoke(() =>
-                {
-                    if (!_isScreenCaptureActive) return;
-                    
-                    PreviewImage = frame;
-                    
-                    if (_currentState == RecordingState.Recording)
-                    {
-                        _frameCount++;
-                        var now = DateTime.Now;
-                        var elapsed = (now - _lastFpsUpdate).TotalSeconds;
-                        
-                        if (elapsed >= 1.0)
-                        {
-                            var actualFps = (int)(_frameCount / elapsed);
-                            StatusInfo.Fps = $"{actualFps:00.00}";
-                            _frameCount = 0;
-                            _lastFpsUpdate = now;
-                            
-                            Debug.WriteLine($"📊 DirectX FPS: {actualFps}, Целевой: {Settings.Fps}");
-                        }
-                    }
-                }, System.Windows.Threading.DispatcherPriority.Render);
+                OnFrameCaptured(frame);
             }
         }
         catch (Exception ex)
@@ -561,35 +562,30 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    // --- МЕТОДЫ, ВЫЗЫВАЕМЫЕ КОМАНДАМИ ---
     public void StartRecording()
     {
-        if (SelectedSource == null)
+        if (ActiveSource == null)
         {
             ShowNoSourceWarning();
             return;
         }
 
-        if (!SelectedSource.IsEnabled)
-        {
-            ShowSourceDisabledWarning();
-            return;
-        }
-
-        var savePath = GetRecordingSavePath();
-        if (string.IsNullOrEmpty(savePath))
-            return;
-
         try
         {
-            Debug.WriteLine($"🎬 Начало записи с FPS: {Settings.Fps}");
+            // --- ИЗМЕНЕНО: Используем формат из настроек ---
+            string fileName = $"record_{DateTime.Now:yyyyMMdd_HHmmss}.{Settings.VideoFormat.ToLower()}";
+            string outputPath = Path.Combine(GetRecordingDirectory(), fileName);
+
+            Debug.WriteLine($"🎬 Начало записи: {outputPath}");
             
-            _recordingService.StartRecording(savePath, SelectedSource);
-            _currentState = RecordingState.Recording;
+            _recordingService.StartRecording(outputPath, ActiveSource);
+            CurrentState = RecordingState.Recording;
             _recordingTime = TimeSpan.Zero;
             
             _frameCount = 0;
             _lastFpsUpdate = DateTime.Now;
+        
+            StartDedicatedPreviewCapture();
         
             UpdateRecordButtonStyle();
             StatusInfo.RecordingTime = "00:00:00";
@@ -597,31 +593,65 @@ public partial class MainViewModel : ObservableObject
         
             OnPropertyChanged(nameof(CurrentState));
         
-            Debug.WriteLine($"🎬 Запись начата: {SelectedSource.Name}, FPS: {Settings.Fps}");
+            Debug.WriteLine($"🎬 Запись начата: {ActiveSource.Name}, Формат: {Settings.VideoFormat}, FPS: {Settings.Fps}");
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"❌ Ошибка начала записи: {ex.Message}");
             ShowErrorMessage($"Ошибка начала записи: {ex.Message}");
         
-            _currentState = RecordingState.Idle;
+            CurrentState = RecordingState.Idle;
             OnPropertyChanged(nameof(CurrentState));
+        }
+    }
+
+    private void StartDedicatedPreviewCapture()
+    {
+        var activeSource = ActiveSource;
+        if (activeSource == null) return;
+
+        Debug.WriteLine($"🎯 Запуск предпросмотра во время записи: {activeSource.Name} ({activeSource.Type})");
+        try
+        {
+            switch (activeSource.Type)
+            {
+                case SourceType.ScreenCapture:
+                    _previewCaptureService.StartCapture(OnFrameCaptured, Settings.Fps);
+                    break;
+                case SourceType.WindowCapture:
+                    if (activeSource.WindowHandle != IntPtr.Zero)
+                    {
+                        _previewCaptureService.StartWindowCapture(activeSource.WindowHandle, OnFrameCaptured, Settings.Fps);
+                    }
+                    break;
+                case SourceType.AreaCapture:
+                    if (activeSource.CaptureArea != Rectangle.Empty)
+                    {
+                        _previewCaptureService.StartAreaCapture(activeSource.CaptureArea, OnFrameCaptured, Settings.Fps);
+                    }
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"❌ Ошибка запуска предпросмотра во время записи: {ex.Message}");
         }
     }
 
     public void PauseRecording()
     {
-        if (_currentState != RecordingState.Recording) return;
+        if (CurrentState != RecordingState.Recording) return;
 
         try
         {
             _recordingService.PauseRecording();
-            _currentState = RecordingState.Paused;
+            CurrentState = RecordingState.Paused;
             
             UpdateRecordButtonStyle();
             
             OnPropertyChanged(nameof(CurrentState));
             Debug.WriteLine("✅ Запись поставлена на паузу");
+            StatusInfo.RecordingTime += " (Пауза)";
         }
         catch (Exception ex)
         {
@@ -632,12 +662,12 @@ public partial class MainViewModel : ObservableObject
 
     public void ResumeRecording()
     {
-        if (_currentState != RecordingState.Paused) return;
+        if (CurrentState != RecordingState.Paused) return;
         
         try
         {
             _recordingService.ResumeRecording();
-            _currentState = RecordingState.Recording;
+            CurrentState = RecordingState.Recording;
             
             UpdateRecordButtonStyle();
             
@@ -653,11 +683,11 @@ public partial class MainViewModel : ObservableObject
 
     public void PauseResumeRecording()
     {
-        if (_currentState == RecordingState.Recording)
+        if (CurrentState == RecordingState.Recording)
         {
             PauseRecording();
         }
-        else if (_currentState == RecordingState.Paused)
+        else if (CurrentState == RecordingState.Paused)
         {
             ResumeRecording();
         }
@@ -667,15 +697,16 @@ public partial class MainViewModel : ObservableObject
     {
         try
         {
-            Debug.WriteLine($"🔄 Остановка записи. Текущее состояние: {_currentState}");
+            Debug.WriteLine($"🔄 Остановка записи. Текущее состояние: {CurrentState}");
 
             _recordingService.StopRecording();
     
-            _currentState = RecordingState.Idle;
+            _previewCaptureService.StopCapture();
+    
+            CurrentState = RecordingState.Idle;
         
-            // --- ДОБАВЬТЕ ЭТУ СТРОКУ ---
             StatusInfo.RecordingTime = "00:00:00";
-            // -------------------------------
+            _recordingTime = TimeSpan.Zero;
         
             UpdateRecordButtonStyle();
             StatusInfo.Fps = "00.00";
@@ -684,9 +715,12 @@ public partial class MainViewModel : ObservableObject
     
             Debug.WriteLine("✅ UI обновлен, запись остановлена");
 
+            ActivateActiveSource();
+
             if (File.Exists(_recordingService.LastRecordingPath))
             {
-                ShowSuccessMessage($"Запись сохранена: {_recordingService.LastRecordingPath}");
+                var fileInfo = new FileInfo(_recordingService.LastRecordingPath);
+                ShowSuccessMessage($"Запись сохранена!\n\nФайл: {Path.GetFileName(_recordingService.LastRecordingPath)}\nРазмер: {FormatFileSize(fileInfo.Length)}\nПуть: {_recordingService.LastRecordingPath}");
             }
             else
             {
@@ -700,21 +734,32 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    // --- ИЗМЕНЕННЫЙ МЕТОД: Обновляет текст и стиль кнопки ---
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        int order = 0;
+        double len = bytes;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
     private void UpdateRecordButtonStyle()
     {
-        if (_currentState == RecordingState.Recording)
+        if (CurrentState == RecordingState.Recording)
         {
-            RecordButtonText = "⏹ Идет запись";
+            RecordButtonText = "⏸ Пауза";
             RecordButtonColor = Brushes.Cyan;
-            RecordButtonIcon = "⏹";
-        }
-        else if (_currentState == RecordingState.Paused)
-        {
-            // ИЗМЕНЕНО: Основная кнопка теперь показывает статус "На паузе"
-            RecordButtonText = "⏸ На паузе";
-            RecordButtonColor = Brushes.Orange;
             RecordButtonIcon = "⏸";
+        }
+        else if (CurrentState == RecordingState.Paused)
+        {
+            RecordButtonText = "▶ Возобновить";
+            RecordButtonColor = Brushes.Orange;
+            RecordButtonIcon = "▶";
         }
         else // Idle
         {
@@ -727,65 +772,54 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(RecordButtonColor));
         OnPropertyChanged(nameof(RecordButtonIcon));
     }
-    // ---------------------------------------------------
 
-    private string GetRecordingSavePath()
+    // --- ИЗМЕНЕННЫЙ МЕТОД: Теперь использует формат из настроек ---
+    private void ChooseSaveLocation()
     {
-        if (Settings.AskForPathEachTime || string.IsNullOrEmpty(Settings.RecordingPath))
+        var saveDialog = new SaveFileDialog
         {
-            var saveDialog = new SaveFileDialog
-            {
-                Filter = GetVideoFormatFilter(),
-                FileName = GetDefaultFileName(),
-                DefaultExt = GetDefaultExtension(),
-                InitialDirectory = GetInitialDirectory()
-            };
-
-            return saveDialog.ShowDialog() == true ? saveDialog.FileName : null;
-        }
-        else
-        {
-            string directory = Settings.RecordingPath;
-            if (!Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-            
-            string fileName = GetDefaultFileName();
-            return Path.Combine(directory, fileName);
-        }
-    }
-
-    private string GetVideoFormatFilter()
-    {
-        return Settings.VideoFormat switch
-        {
-            "MP4" => "MP4 файлы (*.mp4)|*.mp4",
-            "MKV" => "MKV файлы (*.mkv)|*.mkv",
-            "AVI" => "AVI файлы (*.avi)|*.avi",
-            "MOV" => "MOV файлы (*.mov)|*.mov",
-            "WMV" => "WMV файлы (*.wmv)|*.wmv",
-            _ => "Все файлы (*.*)|*.*"
+            // --- ИЗМЕНЕНО ---
+            Filter = GetVideoFormatFilterFor(Settings.VideoFormat),
+            DefaultExt = Settings.VideoFormat.ToLower(),
+            FileName = $"record_{DateTime.Now:yyyyMMdd_HHmmss}.{Settings.VideoFormat.ToLower()}",
+            InitialDirectory = GetRecordingDirectory()
         };
-    }
 
-    private string GetDefaultFileName()
-    {
-        return $"recording_{DateTime.Now:yyyyMMdd_HHmmss}.{GetDefaultExtension()}";
-    }
-
-    private string GetDefaultExtension()
-    {
-        return Settings.VideoFormat.ToLower();
-    }
-
-    private string GetInitialDirectory()
-    {
-        if (!string.IsNullOrEmpty(Settings.RecordingPath) && Directory.Exists(Settings.RecordingPath))
+        if (saveDialog.ShowDialog() == true)
         {
-            return Settings.RecordingPath;
+            // Формат обновляется из выбранного расширения файла
+            Settings.VideoFormat = Path.GetExtension(saveDialog.FileName).TrimStart('.').ToUpper();
+            OnPropertyChanged(nameof(Settings)); // Обновляем UI, если он привязан к Settings.VideoFormat
+            UpdateStatus($"Место сохранения установлено: {Path.GetFileName(saveDialog.FileName)}");
         }
-        return Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+    }
+
+    private string GetRecordingDirectory()
+    {
+        string defaultDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            "RecX Studio");
+        
+        if (!Directory.Exists(defaultDir))
+        {
+            Directory.CreateDirectory(defaultDir);
+        }
+        
+        return defaultDir;
+    }
+
+    // --- НОВЫЙ ВСПОМОГАТЕЛЬНЫЙ МЕТОД ---
+    private string GetVideoFormatFilterFor(string currentFormat)
+    {
+        // Создаем фильтр, где текущий формат идет первым
+        var formats = new[] { "MP4", "MKV", "AVI", "MOV", "WebM", "WMV" };
+        var currentFormatLower = currentFormat.ToLower();
+        
+        string primaryFilter = $"{currentFormat} files (*.{currentFormatLower})|*.{currentFormatLower}";
+        string otherFilters = string.Join("|", formats.Where(f => f != currentFormat)
+                                                       .Select(f => $"{f} files (*.{f.ToLower()})|*.{f.ToLower()}"));
+        
+        return $"{primaryFilter}|{otherFilters}|All files (*.*)|*.*";
     }
 
     private void ShowNoSourceWarning()
@@ -798,12 +832,8 @@ public partial class MainViewModel : ObservableObject
 
         if (result == MessageBoxResult.Yes)
         {
-            var savePath = GetRecordingSavePath();
-            if (!string.IsNullOrEmpty(savePath))
-            {
-                var emptySource = new MediaSource("Пустой экран", SourceType.ScreenCapture);
-                StartRecordingWithSource(emptySource, savePath);
-            }
+            var emptySource = new MediaSource("Пустой экран", SourceType.ScreenCapture);
+            StartRecordingWithSource(emptySource);
         }
     }
 
@@ -826,12 +856,16 @@ public partial class MainViewModel : ObservableObject
         MessageBox.Show(message, "Запись завершена", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private void StartRecordingWithSource(MediaSource source, string savePath)
+    private void StartRecordingWithSource(MediaSource source)
     {
         try
         {
-            _recordingService.StartRecording(savePath, source);
-            _currentState = RecordingState.Recording;
+            // --- ИЗМЕНЕНО: Используем формат из настроек ---
+            string fileName = $"record_{DateTime.Now:yyyyMMdd_HHmmss}.{Settings.VideoFormat.ToLower()}";
+            string outputPath = Path.Combine(GetRecordingDirectory(), fileName);
+
+            _recordingService.StartRecording(outputPath, source);
+            CurrentState = RecordingState.Recording;
             _recordingTime = TimeSpan.Zero;
             
             UpdateRecordButtonStyle();
@@ -857,9 +891,9 @@ public partial class MainViewModel : ObservableObject
         _sources.Add(source);
         Debug.WriteLine($"Добавлен источник: {source.Name}. Всего источников: {_sources.Count}");
         
-        SelectedSource = source;
-        
         OnPropertyChanged(nameof(Sources));
+        OnPropertyChanged(nameof(ActiveSource));
+        ActivateActiveSource();
     }
 
     public void RemoveSource(MediaSource source)
@@ -870,20 +904,33 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Если удаляемый источник в данный момент активен и захватывается,
+        // то нужно остановить захват.
         if ((source.Type == SourceType.ScreenCapture || source.Type == SourceType.WindowCapture) && _isScreenCaptureActive)
         {
+            // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Останавливаем захват немедленно ---
             StopScreenCapture();
         }
 
+        int index = _sources.IndexOf(source);
         _sources.Remove(source);
         Debug.WriteLine($"Удален источник: {source.Name}. Всего источников: {_sources.Count}");
-        
+    
+        // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Обновляем SelectedSource ДО вызова ActivateActiveSource ---
+        // Если мы удаляли выбранный элемент, нужно выбрать новый.
         if (SelectedSource == source)
         {
-            SelectedSource = null;
+            // Выбираем следующий доступный элемент или null, если список пуст
+            SelectedSource = _sources.Any() ? _sources.FirstOrDefault() : null;
         }
-        
+    
+        // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Всегда вызываем ActivateActiveSource после изменений ---
+        // Это обеспечит, что если источников стало 0, предпросмотр будет сброшен.
+        ActivateActiveSource();
+    
+        // Уведомляем UI об изменениях
         OnPropertyChanged(nameof(Sources));
+        OnPropertyChanged(nameof(ActiveSource));
     }
 
     public void MoveSourceUp()
@@ -897,6 +944,8 @@ public partial class MainViewModel : ObservableObject
                 OnPropertyChanged(nameof(Sources));
                 OnPropertyChanged(nameof(CanMoveUp));
                 OnPropertyChanged(nameof(CanMoveDown));
+                OnPropertyChanged(nameof(ActiveSource));
+                ActivateActiveSource();
             }
         }
     }
@@ -912,6 +961,8 @@ public partial class MainViewModel : ObservableObject
                 OnPropertyChanged(nameof(Sources));
                 OnPropertyChanged(nameof(CanMoveUp));
                 OnPropertyChanged(nameof(CanMoveDown));
+                OnPropertyChanged(nameof(ActiveSource));
+                ActivateActiveSource();
             }
         }
     }
@@ -926,65 +977,29 @@ public partial class MainViewModel : ObservableObject
 
     public void ToggleSource(MediaSource source)
     {
-        if (source.Type == SourceType.ScreenCapture)
-        {
-            if (source.IsEnabled)
-            {
-                StartScreenCapture();
-            }
-            else
-            {
-                StopScreenCapture();
-            }
-        }
-        else if (source.Type == SourceType.WindowCapture)
-        {
-            if (source.IsEnabled && source.WindowHandle != IntPtr.Zero)
-            {
-                StartWindowCapture(source.WindowHandle);
-            }
-            else
-            {
-                StopScreenCapture();
-            }
-        }
-        else if (source.Type == SourceType.AreaCapture)
-        {
-            if (source.IsEnabled && source.CaptureArea != Rectangle.Empty)
-            {
-                StartAreaCapture(source.CaptureArea);
-            }
-            else
-            {
-                StopScreenCapture();
-            }
-        }
+        if (source == null) return;
+
+        source.IsEnabled = !source.IsEnabled;
+        ActivateActiveSource();
     }
 
     public void StartScreenCapture()
     {
-        if (!_isScreenCaptureActive)
+        Debug.WriteLine($"🎬 Запрос на запуск захвата экрана с FPS: {Settings.Fps}");
+        
+        if (_useDirectXCapture && _directXCaptureService.IsAvailable())
         {
-            Debug.WriteLine($"🎬 Запрос на запуск захвата экрана с FPS: {Settings.Fps}");
-            
-            if (_useDirectXCapture && _directXCaptureService.IsAvailable())
-            {
-                Debug.WriteLine("✅ Используем DirectX захват для лучшей производительности");
-                StartDirectXCaptureTimer();
-            }
-            else
-            {
-                Debug.WriteLine("⚠️ Используем стандартный захват экрана");
-                _screenCaptureService.StartCapture(OnFrameCaptured, Settings.Fps);
-            }
-            
-            _isScreenCaptureActive = true;
-            Debug.WriteLine("✅ Захват экрана запущен в MainViewModel");
+            Debug.WriteLine("✅ Используем DirectX захват для лучшей производительности");
+            StartDirectXCaptureTimer();
         }
         else
         {
-            Debug.WriteLine("⚠️ Захват экрана уже активен");
+            Debug.WriteLine("⚠️ Используем стандартный захват экрана");
+            _screenCaptureService.StartCapture(OnFrameCaptured, Settings.Fps);
         }
+        
+        _isScreenCaptureActive = true;
+        Debug.WriteLine("✅ Захват экрана запущен в MainViewModel");
     }
 
     private Timer _directXCaptureTimer;
@@ -997,6 +1012,11 @@ public partial class MainViewModel : ObservableObject
         _directXCaptureTimer.Elapsed += (s, e) => CaptureDirectXFrame();
         _directXCaptureTimer.AutoReset = true;
         _directXCaptureTimer.Start();
+    }
+
+    private void StopFrameCapture()
+    {
+        StopScreenCapture();
     }
 
     public void StopScreenCapture()
@@ -1017,6 +1037,11 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private void UpdateStatus(string message)
+    {
+        StatusInfo.RecordingTime = message;
+    }
+
     private void OnFrameCaptured(ImageSource frame)
     {
         if (frame == null)
@@ -1025,7 +1050,17 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        if (_currentState == RecordingState.Recording)
+        if (CurrentState == RecordingState.Recording)
+        {
+            if (frame is BitmapSource bitmapSource)
+            {
+                int stride = bitmapSource.PixelWidth * 3;
+                byte[] pixels = new byte[bitmapSource.PixelHeight * stride];
+                bitmapSource.CopyPixels(pixels, stride, 0);
+            }
+        }
+
+        if (CurrentState == RecordingState.Recording)
         {
             _frameCount++;
             var now = DateTime.Now;
@@ -1034,11 +1069,11 @@ public partial class MainViewModel : ObservableObject
             if (elapsed >= 1.0)
             {
                 var actualFps = (int)(_frameCount / elapsed);
-                StatusInfo.Fps = $"{Settings.Fps:00.00}";
+                StatusInfo.Fps = $"{actualFps:00.00}";
                 _frameCount = 0;
                 _lastFpsUpdate = now;
                 
-                Debug.WriteLine($"📊 Захват FPS: {actualFps}, Целевой (в файле): {Settings.Fps}");
+                Debug.WriteLine($"📊 Real FPS: {actualFps}, Target: {Settings.Fps}");
             }
         }
 
@@ -1090,6 +1125,7 @@ public partial class MainViewModel : ObservableObject
         _statusTimer?.Stop();
         _statusTimer?.Dispose();
         _screenCaptureService?.Dispose();
+        _previewCaptureService?.Dispose(); 
         _recordingService?.Dispose();
         _directXCaptureService?.Dispose();
         _directXCaptureTimer?.Stop();

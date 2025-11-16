@@ -329,12 +329,19 @@
                 <!-- Информация -->
                 <TextBlock TextWrapping="Wrap" Foreground="#AAAAAA" FontSize="11" LineHeight="16">
                     <Run Text="• Рекомендуемые настройки для разных сценариев:"/><LineBreak/>
-                    <Run Text="  - Игры: 60 FPS, MP4, 128 kbps аудио"/><LineBreak/>
-                    <Run Text="  - Рабочий стол: 30 FPS, MP4, 96 kbps аудио"/><LineBreak/>
-                    <Run Text="  - Быстрые игры: 120+ FPS, MKV"/><LineBreak/>
-                    <Run Text="  - Презентации: 24-30 FPS, MP4"/><LineBreak/>
-                    <Run Text="• Высокий FPS требует больше ресурсов CPU"/><LineBreak/>
-                    <Run Text="• Реальный FPS зависит от производительности системы"/>
+                    <Run Text="  - Игры: MP4, 128-192 kbps аудио. Для динамичных игр или записи длительных сессий рекомендуется формат MKV."/><LineBreak/>
+                    <Run Text="  - Запись рабочего стола/демо: MP4, 96-128 kbps аудио."/><LineBreak/>
+                    <Run Text="  - Запись презентаций: MP4, аудио не требуется или 96 kbps."/><LineBreak/>
+                    <LineBreak/>
+                    <Run Text="• О форматах:"/><LineBreak/>
+                    <Run Text="  - MP4: Наиболее совместимый формат. Идеален для веба и большинства устройств."/><LineBreak/>
+                    <Run Text="  - MKV: Более устойчив к сбоям во время записи. Рекомендуется для длинных или критически важных записей."/><LineBreak/>
+                    <Run Text="  - AVI: Устаревший формат, большие размеры файлов. Использовать только при необходимости."/><LineBreak/>
+                    <LineBreak/>
+                    <Run Text="• Важные замечания:"/><LineBreak/>
+                    <Run Text="  - Высокое разрешение записи значительно увеличивает размер файла и нагрузку на систему."/><LineBreak/>
+                    <Run Text="  - Приложение автоматически подбирает оптимальные параметры записи для вашей системы."/><LineBreak/>
+                    <Run Text="  - Для записи системного звука на Windows может потребоваться устройство 'Stereo Mix' или 'Wave Out'."/><LineBreak/>
                 </TextBlock>
                 
             </StackPanel>

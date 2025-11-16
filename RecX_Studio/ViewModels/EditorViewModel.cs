@@ -28,6 +28,7 @@ namespace RecX_Studio.ViewModels
         private bool _isPlaying = false;
         private bool _isPreviewMode = false; // Играем ли мы обрезанный фрагмент?
         private bool _previewIsSet = false;  // Установлены ли границы для предпросмотра?
+        private bool _isInitialized = false; // Загружено ли видео в первый раз?
 
         private TimeSpan _duration;
         public TimeSpan Duration
@@ -40,9 +41,9 @@ namespace RecX_Studio.ViewModels
         public TimeSpan CurrentPosition
         {
             get => _currentPosition;
-            set 
-            { 
-                SetProperty(ref _currentPosition, value); 
+            set
+            {
+                SetProperty(ref _currentPosition, value);
                 OnPropertyChanged(nameof(CurrentTimeFormatted));
                 OnPropertyChanged(nameof(CurrentPositionTotalSeconds));
             }
@@ -83,15 +84,43 @@ namespace RecX_Studio.ViewModels
         public string StartTimeText
         {
             get => _startTimeText;
-            set => SetProperty(ref _startTimeText, value);
+            set
+            {
+                if (SetProperty(ref _startTimeText, value))
+                {
+                    ValidateTimes(); // Запускаем валидацию при изменении текста
+                }
+            }
         }
 
         private string _endTimeText = "00:00:00";
         public string EndTimeText
         {
             get => _endTimeText;
-            set => SetProperty(ref _endTimeText, value);
+            set
+            {
+                if (SetProperty(ref _endTimeText, value))
+                {
+                    ValidateTimes(); // Запускаем валидацию при изменении текста
+                }
+            }
         }
+
+        // --- НОВЫЕ: Свойства для хранения текста ошибок ---
+        private string _startTimeError;
+        public string StartTimeError
+        {
+            get => _startTimeError;
+            set => SetProperty(ref _startTimeError, value);
+        }
+
+        private string _endTimeError;
+        public string EndTimeError
+        {
+            get => _endTimeError;
+            set => SetProperty(ref _endTimeError, value);
+        }
+        // -------------------------------------------------
 
         public EditorViewModel(string videoPath, MediaElement player)
         {
@@ -112,7 +141,8 @@ namespace RecX_Studio.ViewModels
             SetStartCommand = new RelayCommand(SetStart);
             SetEndCommand = new RelayCommand(SetEnd);
             ResetCommand = new RelayCommand(Reset);
-            SaveCommand = new RelayCommand(Save);
+            // --- ИЗМЕНЕНО: Добавлен делегат CanSave ---
+            SaveCommand = new RelayCommand(Save, CanSave);
 
             // Инициализация таймера для обновления UI (текущая позиция)
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
@@ -129,8 +159,10 @@ namespace RecX_Studio.ViewModels
 
             try
             {
+                // Загружаем видео, но НЕ начинаем воспроизведение автоматически
                 _player.Source = new Uri(VideoPath);
-                _player.Play(); // Начинаем воспроизведение при загрузке
+                _player.Pause(); // Явно ставим на паузу после установки источника
+                Debug.WriteLine("EditorViewModel: Источник видео установлен, воспроизведение на паузе.");
             }
             catch (Exception ex)
             {
@@ -163,7 +195,14 @@ namespace RecX_Studio.ViewModels
             {
                 Duration = _player.NaturalDuration.TimeSpan;
                 _uiUpdateTimer.Start();
-                Reset(); // Устанавливаем начальные значения
+
+                // Инициализируем границы только при первой загрузке
+                if (!_isInitialized)
+                {
+                    Debug.WriteLine("EditorViewModel: Первичная инициализация границ отрезка.");
+                    Reset();
+                    _isInitialized = true;
+                }
             }
         }
 
@@ -220,18 +259,62 @@ namespace RecX_Studio.ViewModels
         private void Stop()
         {
             _player.Stop();
-            _player.Position = TimeSpan.Zero; // Возвращаем в начало
-            
+            // Перематываем на начало отрезка, если он установлен, иначе в начало файла
+            _player.Position = _previewIsSet ? StartTime : TimeSpan.Zero;
+
             _isPlaying = false;
             _isPreviewMode = false;
             _previewTimer.Stop(); // Важно остановить таймер предпросмотра
-            
-            Debug.WriteLine("EditorViewModel: Воспроизведение полностью остановлено.");
+
+            Debug.WriteLine($"EditorViewModel: Воспроизведение остановлено. Позиция установлена на {_player.Position}.");
         }
 
+        // --- НОВЫЙ: Централизованный метод валидации ---
+        private void ValidateTimes()
+        {
+            // 1. Проверяем формат и диапазон для начала
+            if (!TimeSpan.TryParse(StartTimeText, out TimeSpan startParsed))
+            {
+                StartTimeError = "Неверный формат. Используйте ЧЧ:ММ:СС.";
+            }
+            else if (startParsed < TimeSpan.Zero || startParsed > Duration)
+            {
+                StartTimeError = "Время выходит за пределы видео.";
+            }
+            else
+            {
+                StartTimeError = null; // Ошибок нет
+            }
+
+            // 2. Проверяем формат и диапазон для конца
+            if (!TimeSpan.TryParse(EndTimeText, out TimeSpan endParsed))
+            {
+                EndTimeError = "Неверный формат. Используйте ЧЧ:ММ:СС.";
+            }
+            else if (endParsed < TimeSpan.Zero || endParsed > Duration)
+            {
+                EndTimeError = "Время выходит за пределы видео.";
+            }
+            else
+            {
+                EndTimeError = null; // Ошибок нет
+            }
+
+            // 3. Проверяем, что начало не позже конца (только если оба времени корректны)
+            if (StartTimeError == null && EndTimeError == null && startParsed >= endParsed)
+            {
+                EndTimeError = "Конец должен быть позже начала.";
+            }
+
+            // Обновляем состояние команд
+            CommandManager.InvalidateRequerySuggested();
+        }
+        // -------------------------------------------------
+
+        // --- ИЗМЕНЕННЫЕ: Упрощенные методы, т.к. основная логика в ValidateTimes ---
         private void SetStart()
         {
-            if (TimeSpan.TryParse(StartTimeText, out TimeSpan result))
+            if (string.IsNullOrEmpty(StartTimeError) && TimeSpan.TryParse(StartTimeText, out var result))
             {
                 StartTime = result;
                 _previewIsSet = true;
@@ -240,19 +323,14 @@ namespace RecX_Studio.ViewModels
                     EndTime = Duration;
                     EndTimeText = EndTimeFormatted;
                 }
-                // Если воспроизведение идет, останавливаем его для ясности
-                if(_isPlaying) Stop(); 
+                if (_isPlaying) Stop();
                 Debug.WriteLine($"EditorViewModel: Установлено начало: {StartTime}. Предпросмотр доступен.");
-            }
-            else
-            {
-                MessageBox.Show("Неверный формат времени для начала. Используйте формат ЧЧ:ММ:СС.", "Ошибка ввода", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
         private void SetEnd()
         {
-            if (TimeSpan.TryParse(EndTimeText, out TimeSpan result))
+            if (string.IsNullOrEmpty(EndTimeError) && TimeSpan.TryParse(EndTimeText, out var result))
             {
                 EndTime = result;
                 _previewIsSet = true;
@@ -261,13 +339,8 @@ namespace RecX_Studio.ViewModels
                     StartTime = TimeSpan.Zero;
                     StartTimeText = StartTimeFormatted;
                 }
-                // Если воспроизведение идет, останавливаем его для ясности
-                if(_isPlaying) Stop();
+                if (_isPlaying) Stop();
                 Debug.WriteLine($"EditorViewModel: Установлен конец: {EndTime}. Предпросмотр доступен.");
-            }
-            else
-            {
-                MessageBox.Show("Неверный формат времени для конца. Используйте формат ЧЧ:ММ:СС.", "Ошибка ввода", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -277,15 +350,28 @@ namespace RecX_Studio.ViewModels
             EndTime = Duration;
             StartTimeText = StartTimeFormatted;
             EndTimeText = EndTimeFormatted;
-            _previewIsSet = false; // Сбрасываем флаг доступности предпросмотра
+            _previewIsSet = false;
+            // --- НОВОЕ: Очищаем ошибки ---
+            StartTimeError = null;
+            EndTimeError = null;
+            // ---------------------------------
             Debug.WriteLine("EditorViewModel: Границы сброшены. Предпросмотр недоступен.");
         }
+        // -------------------------------------------------
+
+        // --- НОВЫЙ: Метод для проверки возможности сохранения ---
+        private bool CanSave()
+        {
+            return string.IsNullOrEmpty(StartTimeError) && string.IsNullOrEmpty(EndTimeError) && StartTime < EndTime;
+        }
+        // -------------------------------------------------
 
         private async void Save()
         {
-            if (StartTime >= EndTime)
+            // Дополнительная проверка на всякий случай
+            if (!CanSave())
             {
-                MessageBox.Show("Начало отрезка не может быть позже или равно концу.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Исправьте ошибки в полях времени перед сохранением.", "Ошибка валидации", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -310,13 +396,14 @@ namespace RecX_Studio.ViewModels
                 }
             }
         }
-        
+
         public void Cleanup()
         {
             _uiUpdateTimer?.Stop();
             _previewTimer?.Stop();
             _player?.Stop();
             _player?.Close();
+            Debug.WriteLine("EditorViewModel: Ресурсы освобождены.");
         }
 
         private string FormatTime(TimeSpan time)
