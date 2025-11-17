@@ -25,6 +25,10 @@ namespace RecX_Studio.Services
         private string _tempDirectory;
         // --------------------------------
 
+        // --- НОВОЕ ПОЛЕ ДЛЯ ВЕБ-КАМЕРЫ ---
+        private MediaSource _currentSource;
+        // --------------------------------
+
         public RecordingService(Settings settings)
         {
             _settings = settings;
@@ -48,6 +52,10 @@ namespace RecX_Studio.Services
                 ResumeRecording();
                 return;
             }
+            // -----------------------------------------
+
+            // --- НОВОЕ: Сохраняем источник для возобновления ---
+            _currentSource = source;
             // -----------------------------------------
 
             Debug.WriteLine($"🎬 Попытка начать запись: {outputPath}");
@@ -178,7 +186,7 @@ namespace RecX_Studio.Services
         }
         // ---------------------------------
 
-        // --- НОВЫЙ МЕТОД: Возобновление ---
+        // --- ИЗМЕНЕННЫЙ МЕТОД: Возобновление ---
         public void ResumeRecording()
         {
             if (!_isRecording || !_isPaused)
@@ -189,14 +197,14 @@ namespace RecX_Studio.Services
             string segmentPath = Path.Combine(_tempDirectory, $"segment_{_segmentFiles.Count}.mp4");
             _segmentFiles.Add(segmentPath);
             
-            // Нам нужен источник для возобновления. В реальном приложении его нужно где-то хранить.
-            // Для простоты примера, предположим, что он передается или хранится.
-            // В данном случае, мы не знаем `source`, так что создадим пустой.
-            // В реальном приложении, нужно будет передать `source` или хранить его.
-            MediaSource source = new MediaSource("Resumed Source", SourceType.ScreenCapture); // ЗАМЕНИТЬ НА РЕАЛЬНЫЙ ИСТОЧНИК
+            // Используем сохраненный источник
+            if (_currentSource == null)
+            {
+                throw new Exception("Источник для возобновления записи не найден");
+            }
             
             string ffmpegPath = GetFFmpegPath();
-            string ffmpegArgs = BuildFFmpegArgs(segmentPath, source);
+            string ffmpegArgs = BuildFFmpegArgs(segmentPath, _currentSource);
             
             var processInfo = new ProcessStartInfo
             {
@@ -448,7 +456,22 @@ namespace RecX_Studio.Services
 
         private string GetVideoInputArgs(MediaSource source)
         {
-            if (source.Type == SourceType.WindowCapture && source.WindowHandle != IntPtr.Zero)
+            if (source.Type == SourceType.Webcam && source.WebcamIndex >= 0) // ДОБАВЛЕНО
+            {
+                var webcamService = new WebcamCaptureService();
+                var webcams = webcamService.GetAvailableWebcams();
+                var webcam = webcams.FirstOrDefault(w => w.Index == source.WebcamIndex);
+                
+                if (webcam != null)
+                {
+                    return $"-f dshow -framerate {_settings.Fps} -i video=\"{webcam.Name}\"";
+                }
+                else
+                {
+                    throw new ArgumentException($"Веб-камера с индексом {source.WebcamIndex} не найдена");
+                }
+            }
+            else if (source.Type == SourceType.WindowCapture && source.WindowHandle != IntPtr.Zero)
             {
                 var windowService = new ModernWindowCaptureService();
                 var windows = windowService.GetAvailableWindows();

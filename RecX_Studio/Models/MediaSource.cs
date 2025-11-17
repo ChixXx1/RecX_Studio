@@ -1,6 +1,6 @@
 using System;
 using System.ComponentModel;
-using System.Drawing; // <-- ДОБАВЛЕНО: необходимо для типа Rectangle
+using System.Drawing;
 using System.Runtime.CompilerServices;
 
 namespace RecX_Studio.Models;
@@ -11,7 +11,7 @@ public enum SourceType
     WindowCapture,    // Захват окна
     AudioInput,       // Аудиовход
     AudioOutput,      // Аудиовыход
-    WebCamera,        // Веб-камера
+    Webcam,           // Веб-камера (оставляем один вариант)
     Image,            // Изображение
     Text,
     AreaCapture       // Захват области
@@ -33,6 +33,29 @@ public class MediaSource : INotifyPropertyChanged
         set
         {
             _captureArea = value;
+            OnPropertyChanged();
+        }
+    }
+    
+    // --- НОВЫЕ ПОЛЯ ДЛЯ ВЕБ-КАМЕРЫ ---
+    private int _webcamIndex = -1;
+    public int WebcamIndex
+    {
+        get => _webcamIndex;
+        set
+        {
+            _webcamIndex = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private System.Drawing.Rectangle _webcamPosition = new System.Drawing.Rectangle(10, 10, 320, 240);
+    public System.Drawing.Rectangle WebcamPosition
+    {
+        get => _webcamPosition;
+        set
+        {
+            _webcamPosition = value;
             OnPropertyChanged();
         }
     }
@@ -94,7 +117,8 @@ public class MediaSource : INotifyPropertyChanged
         Type = type;
         IsEnabled = true;
         WindowHandle = IntPtr.Zero;
-        CaptureArea = System.Drawing.Rectangle.Empty; // <-- ДОБАВЛЕНО: Инициализация нового свойства
+        CaptureArea = System.Drawing.Rectangle.Empty;
+        WebcamPosition = new System.Drawing.Rectangle(10, 10, 320, 240);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

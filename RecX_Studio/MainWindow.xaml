@@ -34,18 +34,24 @@
                     Background="#252526" 
                     Margin="0"
                     VerticalAlignment="Stretch">
-                <Viewbox Stretch="Uniform" 
-                         StretchDirection="Both"
-                         VerticalAlignment="Center"
-                         HorizontalAlignment="Center">
-                    <Image x:Name="PreviewImage" 
-                           Source="{Binding PreviewImage}" 
-                           RenderOptions.BitmapScalingMode="HighQuality"
-                           RenderOptions.EdgeMode="Aliased"
-                           CacheMode="BitmapCache"
-                           SnapsToDevicePixels="True"
-                           UseLayoutRounding="True"/>
-                </Viewbox>
+                <!-- ИЗМЕНЕНО: Добавлен Canvas для оверлеев веб-камеры -->
+                <Grid>
+                    <Viewbox Stretch="Uniform" 
+                             StretchDirection="Both"
+                             VerticalAlignment="Center"
+                             HorizontalAlignment="Center">
+                        <Image x:Name="PreviewImage" 
+                               Source="{Binding PreviewImage}" 
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               RenderOptions.EdgeMode="Aliased"
+                               CacheMode="BitmapCache"
+                               SnapsToDevicePixels="True"
+                               UseLayoutRounding="True"/>
+                    </Viewbox>
+                    <Canvas x:Name="PreviewCanvas" 
+                            Background="Transparent"
+                            IsHitTestVisible="True"/>
+                </Grid>
             </Border>
             
             <!-- Панель масштабирования -->

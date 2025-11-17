@@ -23,6 +23,7 @@ using Color = System.Windows.Media.Color;
 using Pen = System.Windows.Media.Pen;
 using Point = System.Windows.Point;
 using System.Threading.Tasks;
+using System.Windows.Controls;
 
 namespace RecX_Studio.ViewModels;
 
@@ -37,6 +38,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ScreenCaptureService _previewCaptureService;
     private readonly RecordingService _recordingService;
     private readonly DirectXCaptureService _directXCaptureService;
+    private readonly WebcamCaptureService _webcamCaptureService; // ДОБАВЛЕНО
     
     private RecordingState _currentState = RecordingState.Idle;
     private TimeSpan _recordingTime = TimeSpan.Zero;
@@ -50,8 +52,10 @@ public partial class MainViewModel : ObservableObject
     private Brush _recordButtonColor = Brushes.Red;
     private string _recordButtonIcon = "⏺";
     
-    // --- УДАЛЕНО: Свойство SelectedFormat и массив SupportedFormats ---
-    // Теперь формат всегда берется из Settings.VideoFormat
+    // --- НОВЫЕ СВОЙСТВА ДЛЯ ВЕБ-КАМЕРЫ ---
+    private readonly Dictionary<int, WebcamOverlay> _webcamOverlays = new Dictionary<int, WebcamOverlay>();
+    private readonly Dictionary<int, Timer> _webcamTimers = new Dictionary<int, Timer>();
+    // -----------------------------------------
     
     public string RecordButtonText
     {
@@ -123,6 +127,7 @@ public partial class MainViewModel : ObservableObject
         _previewCaptureService = new ScreenCaptureService();
         _recordingService = new RecordingService(_settings);
         _directXCaptureService = new DirectXCaptureService();
+        _webcamCaptureService = new WebcamCaptureService(); // ДОБАВЛЕНО
         
         StartRecordingCommand = new RelayCommand(StartRecording, () => CurrentState == RecordingState.Idle);
         PauseResumeCommand = new RelayCommand(PauseResumeRecording, () => CurrentState == RecordingState.Recording || CurrentState == RecordingState.Paused);
@@ -177,6 +182,7 @@ public partial class MainViewModel : ObservableObject
         if (activeSource == null || !activeSource.IsEnabled)
         {
             StopScreenCapture();
+            StopWebcamCapture();
             Debug.WriteLine("🛑 Активный источник не найден или неактивен, захват остановлен.");
             return;
         }
@@ -187,6 +193,7 @@ public partial class MainViewModel : ObservableObject
         {
             _previewCaptureService.StopCapture();
             StopScreenCapture();
+            StopWebcamCapture();
 
             switch (activeSource.Type)
             {
@@ -213,6 +220,16 @@ public partial class MainViewModel : ObservableObject
                         Debug.WriteLine("⚠️ CaptureArea для активного источника области пуста.");
                     }
                     break;
+                case SourceType.Webcam: // ДОБАВЛЕНО
+                    if (activeSource.WebcamIndex >= 0)
+                    {
+                        StartWebcamCapture(activeSource.WebcamIndex, activeSource.WebcamPosition);
+                    }
+                    else
+                    {
+                        Debug.WriteLine("⚠️ WebcamIndex для активного источника веб-камеры не задан.");
+                    }
+                    break;
             }
         }
         catch (Exception ex)
@@ -220,6 +237,95 @@ public partial class MainViewModel : ObservableObject
             Debug.WriteLine($"❌ Ошибка активации источника {activeSource.Name}: {ex.Message}");
         }
     }
+
+    // --- НОВЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С ВЕБ-КАМЕРОЙ ---
+    public void AddWebcamSource(int webcamIndex, string webcamName)
+    {
+        var source = new MediaSource($"Веб-камера: {webcamName}", SourceType.Webcam)
+        {
+            IsEnabled = true,
+            WebcamIndex = webcamIndex
+        };
+
+        AddSource(source);
+    }
+
+    public List<WebcamCaptureService.WebcamDeviceInfo> GetAvailableWebcams()
+    {
+        return _webcamCaptureService.GetAvailableWebcams();
+    }
+
+    private void StartWebcamCapture(int webcamIndex, Rectangle position)
+    {
+        Debug.WriteLine($"🎬 Запуск захвата веб-камеры: {webcamIndex}");
+        
+        // Создаем оверлей для веб-камеры
+        var webcamOverlay = new WebcamOverlay();
+        Canvas.SetLeft(webcamOverlay, position.X);
+        Canvas.SetTop(webcamOverlay, position.Y);
+        webcamOverlay.Width = position.Width;
+        webcamOverlay.Height = position.Height;
+        
+        // Добавляем оверлей на предпросмотр
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            // Предполагаем, что в MainWindow есть Canvas с именем PreviewCanvas
+            var mainWindow = Application.Current.MainWindow as MainWindow;
+            if (mainWindow?.PreviewCanvas != null)
+            {
+                mainWindow.PreviewCanvas.Children.Add(webcamOverlay);
+            }
+        });
+        
+        _webcamOverlays[webcamIndex] = webcamOverlay;
+        
+        // Создаем таймер для захвата кадров
+        var timer = new Timer(1000.0 / Settings.Fps);
+        timer.Elapsed += (s, e) => 
+        {
+            var frame = _webcamCaptureService.CaptureWebcamFrame(webcamIndex);
+            
+            Application.Current.Dispatcher.Invoke(() => 
+            {
+                if (webcamOverlay.WebcamImage != null)
+                {
+                    webcamOverlay.WebcamImage.Source = frame;
+                }
+            });
+        };
+        timer.AutoReset = true;
+        timer.Start();
+        
+        _webcamTimers[webcamIndex] = timer;
+        
+        Debug.WriteLine($"✅ Захват веб-камеры запущен: {webcamIndex}");
+    }
+
+    private void StopWebcamCapture()
+    {
+        foreach (var timer in _webcamTimers.Values)
+        {
+            timer.Stop();
+            timer.Dispose();
+        }
+        _webcamTimers.Clear();
+        
+        foreach (var overlay in _webcamOverlays.Values)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                var mainWindow = Application.Current.MainWindow as MainWindow;
+                if (mainWindow?.PreviewCanvas != null)
+                {
+                    mainWindow.PreviewCanvas.Children.Remove(overlay);
+                }
+            });
+        }
+        _webcamOverlays.Clear();
+        
+        Debug.WriteLine("✅ Захват веб-камеры остановлен");
+    }
+    // -----------------------------------------
 
     public void StartAreaSelection(Action<Rectangle> onAreaSelected)
     {
@@ -630,6 +736,26 @@ public partial class MainViewModel : ObservableObject
                         _previewCaptureService.StartAreaCapture(activeSource.CaptureArea, OnFrameCaptured, Settings.Fps);
                     }
                     break;
+                case SourceType.Webcam: // ДОБАВЛЕНО
+                    if (activeSource.WebcamIndex >= 0)
+                    {
+                        // Для веб-камеры используем отдельный сервис
+                        var timer = new Timer(1000.0 / Settings.Fps);
+                        timer.Elapsed += (s, e) => 
+                        {
+                            var frame = _webcamCaptureService.CaptureWebcamFrame(activeSource.WebcamIndex);
+                            OnFrameCaptured(frame);
+                        };
+                        timer.AutoReset = true;
+                        timer.Start();
+                        
+                        // Сохраняем таймер для последующей остановки
+                        if (!_webcamTimers.ContainsKey(activeSource.WebcamIndex))
+                        {
+                            _webcamTimers[activeSource.WebcamIndex] = timer;
+                        }
+                    }
+                    break;
             }
         }
         catch (Exception ex)
@@ -911,6 +1037,30 @@ public partial class MainViewModel : ObservableObject
             // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Останавливаем захват немедленно ---
             StopScreenCapture();
         }
+        
+        // ДОБАВЛЕНО: Остановка захвата веб-камеры
+        if (source.Type == SourceType.Webcam && source.WebcamIndex >= 0)
+        {
+            if (_webcamTimers.ContainsKey(source.WebcamIndex))
+            {
+                _webcamTimers[source.WebcamIndex].Stop();
+                _webcamTimers[source.WebcamIndex].Dispose();
+                _webcamTimers.Remove(source.WebcamIndex);
+            }
+            
+            if (_webcamOverlays.ContainsKey(source.WebcamIndex))
+            {
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    var mainWindow = Application.Current.MainWindow as MainWindow;
+                    if (mainWindow?.PreviewCanvas != null)
+                    {
+                        mainWindow.PreviewCanvas.Children.Remove(_webcamOverlays[source.WebcamIndex]);
+                    }
+                });
+                _webcamOverlays.Remove(source.WebcamIndex);
+            }
+        }
 
         int index = _sources.IndexOf(source);
         _sources.Remove(source);
@@ -1128,8 +1278,13 @@ public partial class MainViewModel : ObservableObject
         _previewCaptureService?.Dispose(); 
         _recordingService?.Dispose();
         _directXCaptureService?.Dispose();
+        _webcamCaptureService?.Dispose(); // ДОБАВЛЕНО
         _directXCaptureTimer?.Stop();
         _directXCaptureTimer?.Dispose();
+        
+        // ДОБАВЛЕНО: Очистка ресурсов веб-камеры
+        StopWebcamCapture();
+        
         _cpuCounter?.Dispose();
     }
 }

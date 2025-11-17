@@ -50,6 +50,7 @@ public partial class SourcesPanel : UserControl
         
         AddMenuButton(stackPanel, "Захват экрана", "ScreenCapture");
         AddMenuButton(stackPanel, "Захват области", "AreaCapture");
+        //AddMenuButton(stackPanel, "Веб-камера", "Webcam"); // ДОБАВЛЕНО
         AddMenuSeparator(stackPanel);
 
         _sourcesMenuWindow.Content = stackPanel;
@@ -127,6 +128,10 @@ public partial class SourcesPanel : UserControl
             {
                 StartAreaSelection(mainVm);
             }
+            else if (sourceType == "Webcam") // ДОБАВЛЕНО
+            {
+                ShowWebcamSelectionDialog(mainVm);
+            }
             else
             {
                 MediaSource newSource = sourceType switch
@@ -150,6 +155,30 @@ public partial class SourcesPanel : UserControl
             }
         }
     }
+    
+    // --- НОВЫЙ МЕТОД ДЛЯ ВЫБОРА ВЕБ-КАМЕРЫ ---
+    private void ShowWebcamSelectionDialog(MainViewModel mainVm)
+    {
+        var webcams = mainVm.GetAvailableWebcams();
+        
+        if (webcams.Count == 0)
+        {
+            MessageBox.Show("Веб-камеры не найдены", "Информация", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var webcamSelectionDialog = new WebcamSelectionWindow(webcams)
+        {
+            Owner = Application.Current.MainWindow
+        };
+
+        if (webcamSelectionDialog.ShowDialog() == true && webcamSelectionDialog.SelectedWebcam != null)
+        {
+            var selectedWebcam = webcamSelectionDialog.SelectedWebcam;
+            mainVm.AddWebcamSource(selectedWebcam.Index, selectedWebcam.Name);
+        }
+    }
+    // -----------------------------------------
     
     private void StartAreaSelection(MainViewModel mainVm)
     {
