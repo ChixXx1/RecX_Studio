@@ -20,3 +20,12 @@
    ```bash
    git clone https://github.com/ChixXx1/RecX_Studio.git
    cd RecX_Studio
+
+2. Автоматическая установка FFmpeg:
+   ```powershell 
+   # Запустите этот скрипт для автоматической загрузки FFmpeg
+   .\download-ffmpeg.ps1
+
+3. Запустите приложение:
+   ```bash
+   dotnet run
